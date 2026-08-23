@@ -1,0 +1,6 @@
+{
+  "name": "Attendance App",
+  "description": "Attendance tracking, wage calculation, cashbook management, geofencing, and automated notifications app.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

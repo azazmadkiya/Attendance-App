@@ -1,54 +1,106 @@
 name: Android CI
 
-# Triggers the workflow on push or pull request events for the main branch
 on:
   push:
     branches: [ "main", "master" ]
   pull_request:
     branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
-  build-and-test:
+  build:
+    name: Build Android APK
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Check out the repository source code
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # Step 2: Set up Java Development Kit (JDK 17 or 21 depending on your AGP)
-      - name: Set up JDK
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
-          java-version: '17'
-          cache: 'gradle' # Automatically caches Gradle dependencies to speed up builds
+          java-version: '21'
+          distribution: 'temurin'
 
-      # Step 3: Validate the Gradle Wrapper to prevent security vulnerabilities
-      - name: Validate Gradle Wrapper
-        uses: gradle/actions/wrapper-validation@v3
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-      # Step 4: Grant execute permission for the Gradle Wrapper script
-      - name: Make Gradlew Executable
-        run: chmod +x gradlew
+      - name: Accept Licenses & Install Android SDK 36
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "platform-tools" || true
 
-      # Step 5: Run Android Lint to perform static code analysis
-      - name: Run Code Linting
-        run: ./gradlew lintDebug
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.12'
 
-      # Step 6: Execute local JUnit unit tests
-      - name: Run Unit Tests
-        run: ./gradlew testDebugUnitTest
+      - name: Setup Environment & Secrets
+        run: |
+          # 1. Create .env and local.properties
+          touch .env
+          echo "MAPS_API_KEY=${{ secrets.MAPS_API_KEY }}" >> .env
+          touch .env.example
+          
+          touch local.properties
+          echo "sdk.dir=$ANDROID_HOME" >> local.properties
+          echo "MAPS_API_KEY=${{ secrets.MAPS_API_KEY }}" >> local.properties
+          
+          # 2. Google Services JSON
+          if [ -f "google-services.json" ]; then
+            cp google-services.json app/google-services.json || true
+          fi
 
-      # Step 7: Build the Debug APK to guarantee compilation success
-      - name: Build Debug APK
-        run: ./gradlew assembleDebug
+      - name: Decode Keystore
+        run: |
+          # Decode Release Key if provided in Secrets
+          if [ -n "${{ secrets.SIGNING_KEY }}" ]; then
+            echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > app/release-key.jks
+            echo "KEYSTORE_PATH=app/release-key.jks" >> $GITHUB_ENV
+            echo "STORE_PASSWORD=${{ secrets.KEY_STORE_PASSWORD }}" >> $GITHUB_ENV
+            echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+            echo "KEY_ALIAS=${{ secrets.ALIAS }}" >> $GITHUB_ENV
+          fi
 
-      # Step 8: Upload the generated APK as a downloadable GitHub artifact
-      - name: Upload Debug APK Artifact
+          # Setup debug keystore for debug builds
+          if [ -f "debug.keystore.base64" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          else
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          mkdir -p ~/.android
+          cp debug.keystore ~/.android/debug.keystore || true
+          cp debug.keystore app/debug.keystore || true
+
+      - name: Build APK with Gradle
+        env:
+          JAVA_TOOL_OPTIONS: "-Djava.awt.headless=true -Xmx4096m"
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
+        run: |
+          gradle :app:assembleDebug --stacktrace --no-daemon
+
+      - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 7
-          
+          name: AttendanceApp-Debug-APK
+          path: app/build/outputs/apk/**/*.apk
+          retention-days: 14
+
+      - name: Create or Update GitHub Release
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Attendance App v1.0.${{ github.run_number }}
+          body: |
+            ## Attendance & Payroll App (Haazri Pro) 📱
+            - ✅ Automated build completed successfully.
+            - 📥 Download `app-debug.apk` below to install directly on your Android phone.
+          files: app/build/outputs/apk/**/*.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

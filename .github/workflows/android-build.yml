@@ -24,33 +24,46 @@ jobs:
         with:
           java-version: '17'
           distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android 36 SDK & Build Tools
+        run: |
+          yes | sdkmanager --licenses || true
+          sdkmanager --install "platforms;android-36" "build-tools;36.0.0" "platform-tools" || true
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.12'
 
-      - name: Setup Keystore and Environment Files
+      - name: Setup Keystore and Secrets
         run: |
+          # Create placeholder .env file for Secrets Gradle Plugin
           touch .env
           echo "MAPS_API_KEY=" >> .env
           touch .env.example
           
-          # Generate standard debug keystore
-          keytool -genkey -v -keystore "$GITHUB_WORKSPACE/debug.keystore" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-          cp "$GITHUB_WORKSPACE/debug.keystore" debug.keystore || true
-          cp "$GITHUB_WORKSPACE/debug.keystore" app/debug.keystore || true
+          # Restore debug keystore if base64 is present, otherwise generate a standard debug keystore
+          if [ -f "debug.keystore.base64" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore
+          else
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          
+          # Ensure debug.keystore is accessible in all standard locations
           mkdir -p ~/.android
-          cp "$GITHUB_WORKSPACE/debug.keystore" ~/.android/debug.keystore || true
+          cp debug.keystore ~/.android/debug.keystore || true
+          cp debug.keystore app/debug.keystore || true
 
       - name: Build APK with Gradle
         env:
-          JAVA_TOOL_OPTIONS: "-Djava.awt.headless=true -Xmx3072m"
+          JAVA_TOOL_OPTIONS: "-Djava.awt.headless=true -Xmx4096m"
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
         run: |
-          if [ -f "./gradlew" ]; then
-            chmod +x gradlew
-            ./gradlew :app:assembleDebug --no-daemon --stacktrace
-          else
-            gradle :app:assembleDebug --no-daemon --stacktrace
-          fi
+          gradle :app:assembleDebug --stacktrace --no-daemon
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -67,7 +80,7 @@ jobs:
           name: Attendance App v1.0.${{ github.run_number }}
           body: |
             ## Attendance & Payroll App (Haazri Pro) 📱
-            - ✅ Automated build completed successfully.
+            - ✅ Automated GitHub Actions build completed successfully.
             - 📥 Download `app-debug.apk` below to install directly on your Android phone.
           files: app/build/outputs/apk/debug/*.apk
           draft: false

@@ -296,16 +296,16 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     // Cashbook Entry
-    fun addCashbookEntry(type: String, amount: Double, category: String, notes: String, workerId: Long? = null) {
+    fun addCashbookEntry(type: String, amount: Double, category: String, notes: String, workerId: Long? = null, customDate: String? = null) {
         viewModelScope.launch {
-            val today = selectedDate.value
+            val targetDate = customDate ?: selectedDate.value
             val time = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date())
             val entry = CashbookEntry(
                 workerId = workerId,
                 type = type,
                 amount = amount,
                 category = category,
-                date = today,
+                date = targetDate,
                 time = time,
                 notes = notes
             )

@@ -16,6 +16,8 @@ import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ReceiptLong
+import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material3.*
 import com.example.ui.components.EmptyStateView
 import androidx.compose.runtime.*
@@ -218,8 +220,8 @@ fun CashbookScreen(viewModel: HaazriViewModel) {
         if (showAddDialog) {
             AddCashbookEntryDialog(
                 onDismiss = { showAddDialog = false },
-                onAdd = { type, amount, category, notes ->
-                    viewModel.addCashbookEntry(type, amount, category, notes)
+                onAdd = { type, amount, category, notes, date ->
+                    viewModel.addCashbookEntry(type, amount, category, notes, null, date)
                     showAddDialog = false
                 }
             )
@@ -289,15 +291,45 @@ fun CashbookEntryCard(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddCashbookEntryDialog(
     onDismiss: () -> Unit,
-    onAdd: (type: String, amount: Double, category: String, notes: String) -> Unit
+    onAdd: (type: String, amount: Double, category: String, notes: String, date: String) -> Unit
 ) {
+    val sdfDate = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
     var type by remember { mutableStateOf("INCOME") }
     var amount by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("Payment") }
     var notes by remember { mutableStateOf("") }
+    var dateInput by remember { mutableStateOf(sdfDate.format(Date())) }
+    var showDatePicker by remember { mutableStateOf(false) }
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = try {
+                sdfDate.parse(dateInput)?.time ?: System.currentTimeMillis()
+            } catch (e: Exception) {
+                System.currentTimeMillis()
+            }
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let {
+                        dateInput = sdfDate.format(Date(it))
+                    }
+                    showDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -350,6 +382,25 @@ fun AddCashbookEntryDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Date
+                OutlinedTextField(
+                    value = dateInput,
+                    onValueChange = { },
+                    label = { Text("Date") },
+                    readOnly = true,
+                    leadingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null) },
+                    trailingIcon = {
+                        IconButton(onClick = { showDatePicker = true }) {
+                            Icon(Icons.Default.CalendarMonth, contentDescription = "Select Date")
+                        }
+                    },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                )
             }
         },
         confirmButton = {
@@ -357,7 +408,7 @@ fun AddCashbookEntryDialog(
                 onClick = {
                     val amt = amount.toDoubleOrNull() ?: 0.0
                     if (amt > 0) {
-                        onAdd(type, amt, category, notes)
+                        onAdd(type, amt, category, notes, dateInput)
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF253B80))

@@ -48,6 +48,7 @@ data class CombinedLedgerItem(
     val cashbookEntryRef: CashbookEntry? = null
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
     val context = LocalContext.current
@@ -219,6 +220,8 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
     var selectedPaymentCategory by remember { mutableStateOf("Cash Payment") } // Cash Payment, Advance Pay, Bank Pay (NEFT/TPT)
     var paymentAmountInput by remember { mutableStateOf("") }
     var paymentNotesInput by remember { mutableStateOf("") }
+    var paymentDateInput by remember { mutableStateOf(sdfDate.format(today)) }
+    var showPaymentDatePicker by remember { mutableStateOf(false) }
     var paymentError by remember { mutableStateOf<String?>(null) }
 
     // View tab (0 = Attendance Logs, 1 = Account Ledger)
@@ -249,6 +252,32 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
     }
 
     // Interactive Employee Payment / Advance Dialog
+    if (showPaymentDatePicker) {
+        val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = try {
+                sdfDate.parse(paymentDateInput)?.time ?: System.currentTimeMillis()
+            } catch (e: Exception) {
+                System.currentTimeMillis()
+            }
+        )
+        DatePickerDialog(
+            onDismissRequest = { showPaymentDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let {
+                        paymentDateInput = sdfDate.format(Date(it))
+                    }
+                    showPaymentDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPaymentDatePicker = false }) { Text("Cancel") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
     if (showPaymentDialog) {
         AlertDialog(
             onDismissRequest = { showPaymentDialog = false },
@@ -321,6 +350,26 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
                             .testTag("payment_notes_input"),
                         shape = RoundedCornerShape(10.dp)
                     )
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Date
+                    OutlinedTextField(
+                        value = paymentDateInput,
+                        onValueChange = { },
+                        label = { Text("Date") },
+                        readOnly = true,
+                        leadingIcon = { Icon(Icons.Default.CalendarToday, contentDescription = null) },
+                        trailingIcon = {
+                            IconButton(onClick = { showPaymentDatePicker = true }) {
+                                Icon(Icons.Default.CalendarMonth, contentDescription = "Select Date")
+                            }
+                        },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    )
                 }
             },
             confirmButton = {
@@ -336,11 +385,13 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
                             amount = amountVal,
                             category = selectedPaymentCategory,
                             notes = paymentNotesInput.ifEmpty { "$selectedPaymentCategory for ${currentWorker.name}" },
-                            workerId = currentWorker.id
+                            workerId = currentWorker.id,
+                            customDate = paymentDateInput
                         )
                         showPaymentDialog = false
                         paymentAmountInput = ""
                         paymentNotesInput = ""
+                        paymentDateInput = sdfDate.format(today)
                         paymentError = null
                         activeHistoryTab = 1 // Switch to Employee Account Ledger tab
                     },
@@ -444,6 +495,7 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
                             selectedPaymentCategory = "Cash Payment"
                             paymentAmountInput = ""
                             paymentNotesInput = ""
+                            paymentDateInput = sdfDate.format(today)
                             paymentError = null
                             showPaymentDialog = true
                         },
@@ -464,6 +516,7 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
                             selectedPaymentCategory = "Advance Pay"
                             paymentAmountInput = ""
                             paymentNotesInput = ""
+                            paymentDateInput = sdfDate.format(today)
                             paymentError = null
                             showPaymentDialog = true
                         },
@@ -484,6 +537,7 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
                             selectedPaymentCategory = "Bank Pay (NEFT/TPT)"
                             paymentAmountInput = ""
                             paymentNotesInput = ""
+                            paymentDateInput = sdfDate.format(today)
                             paymentError = null
                             showPaymentDialog = true
                         },

@@ -41,6 +41,13 @@ class AppLockManager(private val context: Context) {
         }
     }
 
+    suspend fun clearLock() {
+        context.dataStore.edit { prefs ->
+            prefs.remove(APP_LOCK_PIN)
+            prefs.remove(BIOMETRIC_ENABLED)
+        }
+    }
+
     fun getPin(): Flow<String?> = context.dataStore.data.map { prefs ->
         prefs[APP_LOCK_PIN]
     }

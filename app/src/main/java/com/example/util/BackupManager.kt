@@ -116,7 +116,8 @@ object BackupManager {
     }
 
     fun importFromJson(jsonString: String): BackupData {
-        val root = JSONObject(jsonString)
+        val cleanJson = jsonString.trim().trim('\uFEFF')
+        val root = JSONObject(cleanJson)
 
         val workers = mutableListOf<Worker>()
         if (root.has("workers")) {

@@ -1,4 +1,10 @@
+
+
 package com.example.ui.screens
+
+import kotlinx.coroutines.launch
+import com.example.util.AppLockManager
+
 
 import android.widget.Toast
 import androidx.compose.foundation.background
@@ -34,8 +40,11 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
     val userEmail by viewModel.loggedInEmail.collectAsState()
     val firebaseUserInfo by viewModel.firebaseUserInfo.collectAsState()
     val selectedLanguage by viewModel.selectedLanguage.collectAsState()
-    val isAppLockEnabled by viewModel.isAppLockEnabled.collectAsState()
-    val currentAppLockPin by viewModel.appLockPin.collectAsState()
+    val appLockManager = remember { AppLockManager(context) }
+    val savedPin by appLockManager.getPin().collectAsState(initial = null)
+    val isBiometricEnabled by appLockManager.isBiometricEnabled().collectAsState(initial = false)
+    val isAppLockEnabled = savedPin != null
+
     val isAmountsHidden by viewModel.isAmountsHidden.collectAsState()
 
     val workers by viewModel.workers.collectAsState()
@@ -214,8 +223,10 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
 
     // 4. App Lock Dialog
     if (showAppLockDialog) {
+        val coroutineScope = rememberCoroutineScope()
         var tempEnabled by remember { mutableStateOf(isAppLockEnabled) }
-        var tempPin by remember { mutableStateOf(currentAppLockPin) }
+        var tempBiometric by remember { mutableStateOf(isBiometricEnabled) }
+        var tempPin by remember { mutableStateOf(savedPin ?: "") }
 
         AlertDialog(
             onDismissRequest = { showAppLockDialog = false },
@@ -226,7 +237,7 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Enable 4-Digit Security PIN", modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
+                        Text("Enable App Security", modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
                         Switch(
                             checked = tempEnabled,
                             onCheckedChange = { tempEnabled = it }
@@ -244,19 +255,39 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                                 .testTag("app_lock_pin_field"),
                             singleLine = true
                         )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Enable Fingerprint Unlock", modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                            Switch(
+                                checked = tempBiometric,
+                                onCheckedChange = { tempBiometric = it }
+                            )
+                        }
                     }
                 }
             },
             confirmButton = {
                 Button(
                     onClick = {
-                        viewModel.updateAppLock(tempEnabled, tempPin)
-                        showAppLockDialog = false
-                        Toast.makeText(
-                            context,
-                            if (tempEnabled) "App lock enabled with PIN $tempPin" else "App lock disabled",
-                            Toast.LENGTH_SHORT
-                        ).show()
+                        coroutineScope.launch {
+                            if (tempEnabled) {
+                                if (tempPin.length == 4) {
+                                    appLockManager.setPin(tempPin)
+                                    appLockManager.setBiometricEnabled(tempBiometric)
+                                    showAppLockDialog = false
+                                    Toast.makeText(context, "App lock enabled with PIN", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "PIN must be 4 digits", Toast.LENGTH_SHORT).show()
+                                }
+                            } else {
+                                appLockManager.clearLock()
+                                showAppLockDialog = false
+                                Toast.makeText(context, "App lock disabled", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E3A8A))
                 ) {
@@ -428,7 +459,7 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                 SettingsRow(
                     icon = Icons.Outlined.Lock,
                     title = "App Lock",
-                    subtitle = if (isAppLockEnabled) "Enabled (PIN: $currentAppLockPin)" else "Disabled (PIN / Security lock)",
+                    subtitle = if (isAppLockEnabled) "Enabled (PIN: $savedPin)" else "Disabled (PIN / Security lock)",
                     onClick = { showAppLockDialog = true },
                     modifier = Modifier.testTag("app_lock_row")
                 )

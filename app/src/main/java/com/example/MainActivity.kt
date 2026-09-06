@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -17,17 +16,23 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import com.example.ui.components.HaazriBottomBar
 import com.example.ui.components.HaazriTopBar
 import com.example.ui.screens.*
 import com.example.ui.theme.HaazriTheme
+import com.example.util.AppLockManager
 import com.example.util.NotificationHelper
 import com.example.viewmodel.AppTab
 import com.example.viewmodel.HaazriViewModel
 import com.example.viewmodel.ScreenState
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     private val viewModel: HaazriViewModel by viewModels()
+    private lateinit var appLockManager: AppLockManager
 
     private val requestNotificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
@@ -37,6 +42,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        appLockManager = AppLockManager(this)
+
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStop(owner: LifecycleOwner) {
+                appLockManager.lockApp()
+            }
+        })
 
         // Create system notification channels
         NotificationHelper.createNotificationChannels(this)
@@ -64,8 +76,25 @@ class MainActivity : ComponentActivity() {
                     )
                 } else {
                     val isLoggedIn by viewModel.isLoggedIn.collectAsState()
-                    if (isLoggedIn) {
-                        HaazriApp(viewModel = viewModel)
+                    val savedPin by appLockManager.getPin().collectAsState(initial = "LOADING")
+                    val isUnlocked by appLockManager.isUnlocked.collectAsState()
+
+                    if (savedPin == "LOADING") {
+                        // Wait for DataStore to load
+                    } else if (isLoggedIn) {
+                        if (savedPin == null) {
+                            SetPinScreen(
+                                appLockManager = appLockManager,
+                                onPinSet = {}
+                            )
+                        } else if (!isUnlocked) {
+                            AppLockScreen(
+                                appLockManager = appLockManager,
+                                onUnlocked = {}
+                            )
+                        } else {
+                            HaazriApp(viewModel = viewModel)
+                        }
                     } else {
                         LoginScreen(
                             viewModel = viewModel,

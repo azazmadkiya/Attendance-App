@@ -14,13 +14,16 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import com.example.util.AppLockManager
+import com.example.util.findFragmentActivity
 
 @Composable
 fun AppLockScreen(
     appLockManager: AppLockManager,
     onUnlocked: () -> Unit
 ) {
-    val context = LocalContext.current as FragmentActivity
+    val context = LocalContext.current
+    val activity = context.findFragmentActivity()
+    
     val savedPin by appLockManager.getPin().collectAsState(initial = null)
     val isBiometricEnabled by appLockManager.isBiometricEnabled().collectAsState(initial = false)
 
@@ -28,11 +31,11 @@ fun AppLockScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var hasPromptedBiometric by remember { mutableStateOf(false) }
 
-    LaunchedEffect(isBiometricEnabled, hasPromptedBiometric) {
-        if (isBiometricEnabled && !hasPromptedBiometric) {
+    LaunchedEffect(isBiometricEnabled, hasPromptedBiometric, activity) {
+        if (isBiometricEnabled && !hasPromptedBiometric && activity != null) {
             hasPromptedBiometric = true
             val executor = ContextCompat.getMainExecutor(context)
-            val biometricPrompt = BiometricPrompt(context, executor,
+            val biometricPrompt = BiometricPrompt(activity, executor,
                 object : BiometricPrompt.AuthenticationCallback() {
                     override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                         super.onAuthenticationError(errorCode, errString)

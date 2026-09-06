@@ -29,17 +29,14 @@ fun AppLockScreen(
 
     var pinInput by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
-    var hasPromptedBiometric by remember { mutableStateOf(false) }
-
-    LaunchedEffect(isBiometricEnabled, hasPromptedBiometric, activity) {
-        if (isBiometricEnabled && !hasPromptedBiometric && activity != null) {
-            hasPromptedBiometric = true
+    
+    fun showBiometricPrompt() {
+        if (activity != null) {
             val executor = ContextCompat.getMainExecutor(context)
             val biometricPrompt = BiometricPrompt(activity, executor,
                 object : BiometricPrompt.AuthenticationCallback() {
                     override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                         super.onAuthenticationError(errorCode, errString)
-                        // If user cancels, they can just use PIN
                     }
 
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
@@ -96,6 +93,13 @@ fun AppLockScreen(
         if (error != null) {
             Spacer(modifier = Modifier.height(4.dp))
             Text(text = error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+        
+        if (isBiometricEnabled) {
+            Spacer(modifier = Modifier.height(24.dp))
+            Button(onClick = { showBiometricPrompt() }) {
+                Text("Unlock with Fingerprint")
+            }
         }
     }
 }

@@ -3,6 +3,8 @@ package com.example.ui.screens
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,6 +31,7 @@ fun AppLockScreen(
 
     var pinInput by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var hasPrompted by remember { mutableStateOf(false) }
     
     fun showBiometricPrompt() {
         if (activity != null) {
@@ -58,6 +61,13 @@ fun AppLockScreen(
                 .build()
 
             biometricPrompt.authenticate(promptInfo)
+        }
+    }
+
+    LaunchedEffect(isBiometricEnabled) {
+        if (isBiometricEnabled && !hasPrompted) {
+            hasPrompted = true
+            showBiometricPrompt()
         }
     }
 
@@ -94,10 +104,19 @@ fun AppLockScreen(
             Spacer(modifier = Modifier.height(4.dp))
             Text(text = error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
-        
+
         if (isBiometricEnabled) {
-            Spacer(modifier = Modifier.height(24.dp))
-            Button(onClick = { showBiometricPrompt() }) {
+            Spacer(modifier = Modifier.height(32.dp))
+            FilledTonalButton(
+                onClick = { showBiometricPrompt() },
+                modifier = Modifier.fillMaxWidth(0.8f)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Fingerprint,
+                    contentDescription = "Fingerprint",
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text("Unlock with Fingerprint")
             }
         }

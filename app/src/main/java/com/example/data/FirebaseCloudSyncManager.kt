@@ -10,10 +10,9 @@ import kotlinx.coroutines.tasks.await
  * Robust Firebase Cloud Sync Manager.
  * Handles batched writes, individual fallbacks, and real-time data persistence.
  */
-class FirebaseCloudSyncManager(
-    private val firestore: FirebaseFirestore = FirebaseFirestore.getInstance(),
-    private val auth: FirebaseAuth = FirebaseAuth.getInstance()
-) {
+class FirebaseCloudSyncManager {
+    private val firestore: FirebaseFirestore? by lazy { try { FirebaseFirestore.getInstance() } catch (e: Exception) { null } }
+    private val auth: FirebaseAuth? by lazy { try { FirebaseAuth.getInstance() } catch (e: Exception) { null } }
     companion object {
         private const val TAG = "FirebaseCloudSync"
         private const val COLLECTION_USERS = "users"
@@ -31,7 +30,7 @@ class FirebaseCloudSyncManager(
         if (!phoneClean.isNullOrBlank()) {
             return "account_$phoneClean"
         }
-        val currentUser = auth.currentUser
+        val currentUser = auth!!.currentUser
         if (currentUser != null && currentUser.uid.isNotBlank()) {
             return currentUser.uid
         }
@@ -58,7 +57,7 @@ class FirebaseCloudSyncManager(
                 "password" to passwordHash,
                 "updatedAt" to System.currentTimeMillis()
             )
-            firestore.collection(COLLECTION_USERS).document(key).set(data, SetOptions.merge()).await()
+            firestore!!.collection(COLLECTION_USERS).document(key).set(data, SetOptions.merge()).await()
             Log.d(TAG, "Saved user profile to Cloud Firestore for $key")
             Pair(true, "Profile saved")
         } catch (e: Exception) {
@@ -89,7 +88,7 @@ class FirebaseCloudSyncManager(
                 "notes" to worker.notes,
                 "createdAt" to worker.createdAt
             )
-            firestore.collection(COLLECTION_USERS)
+            firestore!!.collection(COLLECTION_USERS)
                 .document(accountId)
                 .collection(COLLECTION_WORKERS)
                 .document(worker.id.toString())
@@ -107,7 +106,7 @@ class FirebaseCloudSyncManager(
     suspend fun deleteWorkerFromCloud(workerId: Long, accountPhone: String? = null) {
         try {
             val accountId = getAccountKey(accountPhone)
-            firestore.collection(COLLECTION_USERS)
+            firestore!!.collection(COLLECTION_USERS)
                 .document(accountId)
                 .collection(COLLECTION_WORKERS)
                 .document(workerId.toString())
@@ -139,7 +138,7 @@ class FirebaseCloudSyncManager(
                 "notes" to record.notes,
                 "updatedAt" to System.currentTimeMillis()
             )
-            firestore.collection(COLLECTION_USERS)
+            firestore!!.collection(COLLECTION_USERS)
                 .document(accountId)
                 .collection(COLLECTION_ATTENDANCE)
                 .document(docId)
@@ -168,7 +167,7 @@ class FirebaseCloudSyncManager(
                 "timestamp" to System.currentTimeMillis()
             )
             val docId = if (entry.id > 0) entry.id.toString() else "cb_${System.currentTimeMillis()}"
-            firestore.collection(COLLECTION_USERS)
+            firestore!!.collection(COLLECTION_USERS)
                 .document(accountId)
                 .collection(COLLECTION_CASHBOOK)
                 .document(docId)
@@ -190,7 +189,7 @@ class FirebaseCloudSyncManager(
     ): Pair<Boolean, String> {
         return try {
             val accountId = getAccountKey(accountPhone)
-            val userRef = firestore.collection(COLLECTION_USERS).document(accountId)
+            val userRef = firestore!!.collection(COLLECTION_USERS).document(accountId)
 
             // Step 1: Update metadata document first
             userRef.set(
@@ -268,7 +267,7 @@ class FirebaseCloudSyncManager(
             // Execute all operations in batches of 200 to prevent timeout or payload overflow
             val chunkSize = 200
             for (chunk in operations.chunked(chunkSize)) {
-                val batch = firestore.batch()
+                val batch = firestore!!.batch()
                 // If using batch directly:
                 chunk.forEach { op ->
                     op.invoke()
@@ -301,7 +300,7 @@ class FirebaseCloudSyncManager(
     ): Triple<List<Worker>, List<AttendanceRecord>, List<CashbookEntry>>? {
         return try {
             val accountId = getAccountKey(accountPhone)
-            val userRef = firestore.collection(COLLECTION_USERS).document(accountId)
+            val userRef = firestore!!.collection(COLLECTION_USERS).document(accountId)
 
             // Workers
             val workersSnap = userRef.collection(COLLECTION_WORKERS).get().await()

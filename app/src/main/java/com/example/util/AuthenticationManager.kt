@@ -46,9 +46,9 @@ data class AuthUserInfo(
  * Manages Firebase Authentication, Email Sign-Up/Login, and Google Sign-In via Jetpack CredentialManager.
  */
 class AuthenticationManager(
-    private val context: Context,
-    private val auth: FirebaseAuth = FirebaseAuth.getInstance()
+    private val context: Context
 ) {
+    private val auth: FirebaseAuth? by lazy { try { FirebaseAuth.getInstance() } catch (e: Exception) { null } }
     companion object {
         private const val TAG = "AuthManager"
         
@@ -58,7 +58,7 @@ class AuthenticationManager(
 
     private val credentialManager = CredentialManager.create(context)
 
-    private val _currentUserState = MutableStateFlow<FirebaseUser?>(auth.currentUser)
+    private val _currentUserState = MutableStateFlow<FirebaseUser?>(auth?.currentUser)
     val currentUserState: StateFlow<FirebaseUser?> = _currentUserState.asStateFlow()
 
     private val _authUserInfo = MutableStateFlow<AuthUserInfo?>(getCurrentUserInfo())
@@ -66,7 +66,7 @@ class AuthenticationManager(
 
     init {
         // Keep flow synchronized with Firebase Auth state
-        auth.addAuthStateListener { firebaseAuth ->
+        auth?.addAuthStateListener { firebaseAuth ->
             _currentUserState.value = firebaseAuth.currentUser
             _authUserInfo.value = getCurrentUserInfo()
         }
@@ -75,18 +75,18 @@ class AuthenticationManager(
     /**
      * Checks if a user is currently signed in.
      */
-    fun isUserSignedIn(): Boolean = auth.currentUser != null
+    fun isUserSignedIn(): Boolean = auth?.currentUser != null
 
     /**
      * Returns current FirebaseUser instance.
      */
-    fun getCurrentUser(): FirebaseUser? = auth.currentUser
+    fun getCurrentUser(): FirebaseUser? = auth?.currentUser
 
     /**
      * Returns current user details formatted for UI consumption.
      */
     fun getCurrentUserInfo(): AuthUserInfo? {
-        val user = auth.currentUser ?: return null
+        val user = auth?.currentUser ?: return null
         return AuthUserInfo(
             uid = user.uid,
             displayName = user.displayName ?: user.email?.substringBefore("@") ?: "User",
@@ -101,15 +101,15 @@ class AuthenticationManager(
      */
     suspend fun signUpWithEmail(email: String, password: String, displayName: String): AuthResult {
         return try {
-            val result = auth.createUserWithEmailAndPassword(email.trim(), password).await()
-            val user = result.user
+            val result = auth?.createUserWithEmailAndPassword(email.trim(), password)?.await()
+            val user = result?.user
             if (user != null) {
                 if (displayName.isNotBlank()) {
                     try {
                         val profileUpdates = UserProfileChangeRequest.Builder()
                             .setDisplayName(displayName.trim())
                             .build()
-                        user.updateProfile(profileUpdates).await()
+                        user.updateProfile(profileUpdates)?.await()
                     } catch (e: Exception) {
                         Log.w(TAG, "Profile name update failed: ${e.message}")
                     }
@@ -131,8 +131,8 @@ class AuthenticationManager(
      */
     suspend fun signInWithEmail(email: String, password: String): AuthResult {
         return try {
-            val result = auth.signInWithEmailAndPassword(email.trim(), password).await()
-            val user = result.user
+            val result = auth?.signInWithEmailAndPassword(email.trim(), password)?.await()
+            val user = result?.user
             if (user != null) {
                 _currentUserState.value = user
                 _authUserInfo.value = getCurrentUserInfo()
@@ -198,8 +198,8 @@ class AuthenticationManager(
                         val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
                         val idToken = googleIdTokenCredential.idToken
                         val authCredential = GoogleAuthProvider.getCredential(idToken, null)
-                        val authResult = auth.signInWithCredential(authCredential).await()
-                        val user = authResult.user
+                        val authResult = auth?.signInWithCredential(authCredential)?.await()
+                        val user = authResult?.user
                         if (user != null) {
                             _currentUserState.value = user
                             _authUserInfo.value = getCurrentUserInfo()
@@ -229,7 +229,7 @@ class AuthenticationManager(
      */
     suspend fun signOut(): Boolean {
         return try {
-            auth.signOut()
+            auth?.signOut()
             try {
                 credentialManager.clearCredentialState(ClearCredentialStateRequest())
             } catch (e: Exception) {

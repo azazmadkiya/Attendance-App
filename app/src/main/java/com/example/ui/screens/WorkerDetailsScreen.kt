@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import com.example.ui.components.EmptyStateView
+import com.example.ui.components.AttendanceCalendarView
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -704,6 +705,42 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
                         maxLines = 1
                     )
                 }
+                
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Export Filtered CSV Statement Button
+                Button(
+                    onClick = {
+                        WorkerPdfGenerator.exportWorkerDetailsCsv(
+                            context = context,
+                            worker = currentWorker,
+                            attendanceHistory = filteredAttendanceHistory,
+                            cashbookEntries = filteredCashbookEntries,
+                            reportPeriodTitle = reportPeriodTitle
+                        )
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF15803D)),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .testTag("btn_generate_csv")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.TableChart,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Download Excel / CSV",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = Color.White,
+                        maxLines = 1
+                    )
+                }
             }
         }
 
@@ -787,6 +824,21 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
 
         if (activeHistoryTab == 0) {
             // ATTENDANCE LOGS TAB
+            if (filterType == "MONTH") {
+                val cal = java.util.Calendar.getInstance()
+                try {
+                    val sdfMonthParse = java.text.SimpleDateFormat("yyyy-MM", java.util.Locale.getDefault())
+                    cal.time = sdfMonthParse.parse(selectedFilterMonth) ?: java.util.Date()
+                } catch (e: Exception) {}
+                
+                AttendanceCalendarView(
+                    year = cal.get(java.util.Calendar.YEAR),
+                    month = cal.get(java.util.Calendar.MONTH),
+                    attendanceRecords = filteredAttendanceHistory
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
             if (attendanceHistory.isEmpty()) {
                 Box(
                     modifier = Modifier

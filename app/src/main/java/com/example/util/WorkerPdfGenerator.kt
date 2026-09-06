@@ -395,12 +395,76 @@ object WorkerPdfGenerator {
         val fullCsv = csvHeader + csvBody
 
         try {
-            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                type = "text/plain"
-                putExtra(Intent.EXTRA_SUBJECT, "All Employees Monthly Attendance & Payroll Report - $displayMonth")
-                putExtra(Intent.EXTRA_TEXT, fullCsv)
+            val fileName = "Monthly_Report_${displayMonth.replace(" ", "_")}.csv"
+            val file = File(context.cacheDir, fileName)
+            FileOutputStream(file).use { output ->
+                output.write(fullCsv.toByteArray(Charsets.UTF_8))
             }
-            context.startActivity(Intent.createChooser(shareIntent, "Share All Staff Monthly Report ($displayMonth)"))
+
+            val fileUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/csv"
+                putExtra(Intent.EXTRA_SUBJECT, "Monthly Report - $displayMonth")
+                putExtra(Intent.EXTRA_STREAM, fileUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(shareIntent, "Share Monthly Report CSV"))
+        } catch (e: Exception) {
+            Toast.makeText(context, "Failed to export CSV: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun exportWorkerDetailsCsv(
+        context: Context,
+        worker: Worker,
+        attendanceHistory: List<AttendanceRecord>,
+        cashbookEntries: List<CashbookEntry>,
+        reportPeriodTitle: String
+    ) {
+        val displayPeriod = formatDisplayPeriod(reportPeriodTitle)
+        
+        val attHeader = "Date,Status,Check In,Check Out,Overtime,Geofence,Notes\n"
+        val attBody = attendanceHistory.joinToString("\n") { att ->
+            "\"${att.date}\",\"${att.status}\",\"${att.checkInTime}\",\"${att.checkOutTime}\",${att.overtimeHours},\"${if(att.isGeofenceVerified) "Yes" else "No"}\",\"${att.notes.replace("\"", "\"\"")}\""
+        }
+        
+        val cbHeader = "Date,Time,Type,Category,Amount,Notes\n"
+        val cbBody = cashbookEntries.joinToString("\n") { cb ->
+            "\"${cb.date}\",\"${cb.time}\",\"${cb.type}\",\"${cb.category}\",${cb.amount},\"${cb.notes.replace("\"", "\"\"")}\""
+        }
+        
+        val fullCsv = "WORKER DETAILS\n" +
+                "Name,${worker.name}\n" +
+                "Phone,${worker.phone}\n" +
+                "Wage Type,${worker.wageType}\n\n" +
+                "ATTENDANCE RECORDS\n" + attHeader + attBody + "\n\n" +
+                "CASHBOOK ENTRIES\n" + cbHeader + cbBody
+                
+        try {
+            val fileName = "${worker.name.replace(" ", "_")}_Report_${displayPeriod.replace(" ", "_")}.csv"
+            val file = File(context.cacheDir, fileName)
+            FileOutputStream(file).use { output ->
+                output.write(fullCsv.toByteArray(Charsets.UTF_8))
+            }
+
+            val fileUri = FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                file
+            )
+
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = "text/csv"
+                putExtra(Intent.EXTRA_SUBJECT, "Worker Report - ${worker.name} - $displayPeriod")
+                putExtra(Intent.EXTRA_STREAM, fileUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(shareIntent, "Share Worker Details CSV"))
         } catch (e: Exception) {
             Toast.makeText(context, "Failed to export CSV: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
         }

@@ -116,7 +116,12 @@ object BackupManager {
     }
 
     fun importFromJson(jsonString: String): BackupData {
-        val cleanJson = jsonString.trim().trim('\uFEFF')
+        val startIndex = jsonString.indexOf('{')
+        val endIndex = jsonString.lastIndexOf('}')
+        if (startIndex == -1 || endIndex == -1 || startIndex > endIndex) {
+            throw IllegalArgumentException("Invalid JSON format: Missing root braces")
+        }
+        val cleanJson = jsonString.substring(startIndex, endIndex + 1)
         val root = JSONObject(cleanJson)
 
         val workers = mutableListOf<Worker>()

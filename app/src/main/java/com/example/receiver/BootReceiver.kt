@@ -24,6 +24,7 @@ class BootReceiver : BroadcastReceiver() {
                     if (settings != null) {
                         NotificationScheduler.scheduleAll(context, settings)
                     }
+                    com.example.util.AutoBackupScheduler.scheduleDailyBackup(context)
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }

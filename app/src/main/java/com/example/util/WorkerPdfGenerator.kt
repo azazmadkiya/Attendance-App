@@ -110,7 +110,7 @@ object WorkerPdfGenerator {
                 </td>
                 <td>${rec.checkInTime.ifEmpty { "09:00 AM" }}$otInfo</td>
                 <td>$noteBadge</td>
-                <td>${if (rec.isGeofenceVerified) "📍 GPS Verified" else "Manual Entry"}</td>
+                <td>Manual Entry</td>
                 <td style="text-align: right; font-weight: bold; color: #16a34a;">+ ₹${String.format(Locale.US, "%.1f", earned)}</td>
             </tr>
             """.trimIndent()

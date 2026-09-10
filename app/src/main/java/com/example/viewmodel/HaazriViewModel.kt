@@ -8,14 +8,18 @@ import com.example.data.*
 import com.example.util.AuthenticationManager
 import com.example.util.AuthResult
 import com.example.util.AuthUserInfo
+import com.example.util.UserProfile
 import com.example.util.BackupManager
 import com.example.util.DailyWageBreakdown
 import com.example.util.MonthlyWageSummary
 import com.example.util.NotificationHelper
 import com.example.util.NotificationScheduler
 import com.example.util.WageCalculator
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.*
@@ -25,9 +29,10 @@ enum class AppTab {
 }
 
 enum class ScreenState {
-    MAIN_TABS, ADD_WORKER, SELECT_CONTACT, WORKER_DETAILS, GEOFENCE_ADMIN, NOTIFICATIONS_SETUP, MONTHLY_REPORT, BACKUP_RESTORE, PRIVACY_POLICY, TERMS_OF_SERVICE, DATA_SAFETY, ABOUT_APP
+    MAIN_TABS, ADD_WORKER, SELECT_CONTACT, WORKER_DETAILS, NOTIFICATIONS_SETUP, MONTHLY_REPORT, BACKUP_RESTORE, PRIVACY_POLICY, TERMS_OF_SERVICE, DATA_SAFETY, ABOUT_APP
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class HaazriViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: HaazriRepository
     private val prefs = application.getSharedPreferences("haazri_user_prefs", android.content.Context.MODE_PRIVATE)
@@ -45,8 +50,7 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
     val loggedInPhone = MutableStateFlow(prefs.getString("user_phone", "9876543210") ?: "9876543210")
     val loggedInEmail = MutableStateFlow(authManager.getCurrentUserInfo()?.email ?: prefs.getString("user_email", "") ?: "")
 
-    // Language & App Lock preferences
-    val selectedLanguage = MutableStateFlow(prefs.getString("app_language", "English") ?: "English")
+    // App Lock preferences
     val isAppLockEnabled = MutableStateFlow(prefs.getBoolean("is_app_lock_enabled", false))
     val appLockPin = MutableStateFlow(prefs.getString("app_lock_pin", "1234") ?: "1234")
     val isAmountsHidden = MutableStateFlow(prefs.getBoolean("is_amounts_hidden", false))
@@ -74,13 +78,6 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
                 val hasClearedSample = prefs.getBoolean("has_cleared_initial_sample_data", false)
                 if (!hasClearedSample) {
                     prefs.edit().putBoolean("has_cleared_initial_sample_data", true).apply()
-                }
-
-                // Ensure geofence default config
-                if (repository.geofenceConfig.firstOrNull() == null) {
-                    repository.saveGeofenceConfig(
-                        GeofenceConfig(officeName = "Central Office HQ", latitude = 28.6139, longitude = 77.2090, radiusMeters = 200f)
-                    )
                 }
 
                 // Ensure default notification settings
@@ -120,9 +117,6 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
 
     val cashbookEntries: StateFlow<List<CashbookEntry>> = repository.allCashbookEntries
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val geofenceConfig: StateFlow<GeofenceConfig?> = repository.geofenceConfig
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val notificationSettings: StateFlow<NotificationSetting?> = repository.notificationSettings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -203,7 +197,6 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
         workerId: Long,
         status: String,
         checkInTime: String = "09:00 AM",
-        isGeofenced: Boolean = false,
         customAmount: Double? = null,
         notes: String? = null
     ) {
@@ -213,7 +206,6 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
                 date = selectedDate.value,
                 status = status,
                 checkInTime = checkInTime,
-                isGeofenceVerified = isGeofenced,
                 customAmount = customAmount,
                 notes = notes
             )
@@ -319,26 +311,6 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // Geofencing Calculation Helper
-    fun isWithinGeofence(userLat: Double, userLng: Double, officeLat: Double, officeLng: Double, radiusMeters: Float): Boolean {
-        val results = FloatArray(1)
-        Location.distanceBetween(officeLat, officeLng, userLat, userLng, results)
-        return results[0] <= radiusMeters
-    }
-
-    fun saveGeofence(officeName: String, lat: Double, lng: Double, radius: Float, isEnabled: Boolean) {
-        viewModelScope.launch {
-            val config = GeofenceConfig(
-                officeName = officeName,
-                latitude = lat,
-                longitude = lng,
-                radiusMeters = radius,
-                isEnabled = isEnabled
-            )
-            repository.saveGeofenceConfig(config)
-        }
-    }
-
     fun saveNotificationSetting(dailyReminder: Boolean, reminderTime: String, missedCheckout: Boolean, weeklyReport: Boolean, hideAmounts: Boolean) {
         viewModelScope.launch {
             val setting = NotificationSetting(
@@ -353,118 +325,102 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    val cloudSyncManager = FirebaseCloudSyncManager()
-    val isCloudSyncing = MutableStateFlow(false)
-    val lastCloudSyncTime = MutableStateFlow(prefs.getLong("last_cloud_sync_timestamp", 0L))
+    // User Authentication with Firebase Cloud Sync & Firestore Recovery
+    suspend fun loginUser(phoneOrEmail: String, passwordOrPin: String): AuthResult {
+        // 1. Attempt Cloud Authentication with Firebase
+        val result = authManager.loginUserInFirebase(phoneOrEmail, passwordOrPin)
+        if (result is AuthResult.Success) {
+            val profile = result.profile
+            val cleanPhone = phoneOrEmail.filter { it.isDigit() }
+            val finalPhone = if (profile != null && profile.phone.isNotBlank()) profile.phone else cleanPhone
+            val finalName = profile?.managerName?.ifBlank { result.user.displayName ?: "Admin" }
+                ?: result.user.displayName ?: "Admin"
+            val finalCompany = profile?.companyName?.ifBlank { "My Business" } ?: "My Business"
+            val finalEmail = profile?.email?.ifBlank { result.user.email ?: "" } ?: (result.user.email ?: "")
 
-    // User Authentication
-    fun loginUser(phone: String, passwordOrPin: String): Boolean {
-        val savedPass = prefs.getString("user_pin_$phone", null)
-            ?: prefs.getString("user_pass_$phone", "1234")
-            ?: "1234"
-        if (passwordOrPin == savedPass || passwordOrPin == "1234" || phone == "9876543210") {
             prefs.edit()
                 .putBoolean("is_logged_in", true)
-                .putString("user_phone", phone)
+                .putString("company_name", finalCompany)
+                .putString("user_name", finalName)
+                .putString("user_phone", finalPhone)
+                .putString("user_email", finalEmail)
+                .putString("user_pin_$finalPhone", passwordOrPin)
+                .putString("user_pass_$finalPhone", passwordOrPin)
+                .apply()
+
+            isLoggedIn.value = true
+            loggedInCompanyName.value = finalCompany
+            loggedInUserName.value = finalName
+            loggedInPhone.value = finalPhone
+            loggedInEmail.value = finalEmail
+            return result
+        }
+
+        // 2. Offline Fallback for previously cached credentials or demo user
+        val cleanPhone = phoneOrEmail.filter { it.isDigit() }
+        val savedPass = prefs.getString("user_pin_$cleanPhone", null)
+            ?: prefs.getString("user_pass_$cleanPhone", null)
+            ?: if (cleanPhone == "9876543210") "1234" else null
+
+        if (savedPass != null && (passwordOrPin == savedPass || (cleanPhone == "9876543210" && passwordOrPin == "1234"))) {
+            prefs.edit()
+                .putBoolean("is_logged_in", true)
+                .putString("user_phone", cleanPhone)
                 .apply()
             isLoggedIn.value = true
-            loggedInPhone.value = phone
-
-            // Sync from / to cloud on login
-            viewModelScope.launch {
-                cloudSyncManager.saveUserProfileToCloud(
-                    company = loggedInCompanyName.value,
-                    name = loggedInUserName.value,
-                    phone = phone,
-                    email = loggedInEmail.value,
-                    passwordHash = passwordOrPin
-                )
-            }
-            return true
-        }
-        return false
-    }
-
-    fun registerUser(company: String, name: String, phone: String, passwordOrPin: String, email: String = "") {
-        prefs.edit()
-            .putBoolean("is_logged_in", true)
-            .putString("company_name", company)
-            .putString("user_name", name)
-            .putString("user_phone", phone)
-            .putString("user_email", email)
-            .putString("user_pin_$phone", passwordOrPin)
-            .putString("user_pass_$phone", passwordOrPin)
-            .apply()
-        isLoggedIn.value = true
-        loggedInCompanyName.value = company
-        loggedInUserName.value = name
-        loggedInPhone.value = phone
-        loggedInEmail.value = email
-
-        // Immediately backup account & profile to Firebase Cloud
-        viewModelScope.launch {
-            cloudSyncManager.saveUserProfileToCloud(
-                company = company,
-                name = name,
-                phone = phone,
-                email = email,
-                passwordHash = passwordOrPin
-            )
-            // Backup any current workers to cloud
-            cloudSyncManager.syncFullDatabaseToCloud(
-                workers = workers.value,
-                attendance = allAttendanceRecords.value,
-                cashbook = cashbookEntries.value,
-                accountPhone = phone
-            )
-        }
-    }
-
-    fun syncAllToCloudNow(onComplete: (Boolean, String) -> Unit) {
-        viewModelScope.launch {
-            isCloudSyncing.value = true
-            val (success, message) = cloudSyncManager.syncFullDatabaseToCloud(
-                workers = workers.value,
-                attendance = allAttendanceRecords.value,
-                cashbook = cashbookEntries.value,
-                accountPhone = loggedInPhone.value
-            )
-            isCloudSyncing.value = false
-            if (success) {
-                val now = System.currentTimeMillis()
-                prefs.edit().putLong("last_cloud_sync_timestamp", now).apply()
-                lastCloudSyncTime.value = now
-                onComplete(true, message)
-            } else {
-                onComplete(false, message)
+            loggedInPhone.value = cleanPhone
+            val restoredName = prefs.getString("user_name", "Admin") ?: "Admin"
+            val restoredCompany = prefs.getString("company_name", "My Business") ?: "My Business"
+            loggedInUserName.value = restoredName
+            loggedInCompanyName.value = restoredCompany
+            val currentUser = authManager.getCurrentUser()
+            if (currentUser != null) {
+                return AuthResult.Success(currentUser)
             }
         }
+
+        return result
     }
 
-    fun restoreFromCloudNow(clearExisting: Boolean, onComplete: (Boolean, String) -> Unit) {
-        viewModelScope.launch {
-            isCloudSyncing.value = true
-            val cloudData = cloudSyncManager.fetchCloudData(loggedInPhone.value)
-            isCloudSyncing.value = false
-            if (cloudData != null) {
-                val (cloudWorkers, cloudAttendance, cloudCashbook) = cloudData
-                if (cloudWorkers.isEmpty() && cloudAttendance.isEmpty() && cloudCashbook.isEmpty()) {
-                    onComplete(false, "No cloud backup records found for this account.")
-                } else {
-                    repository.restoreBackupData(
-                        workers = cloudWorkers,
-                        attendanceRecords = cloudAttendance,
-                        cashbookEntries = cloudCashbook,
-                        geofenceConfig = null,
-                        notificationSetting = null,
-                        clearExisting = clearExisting
-                    )
-                    onComplete(true, "Successfully restored ${cloudWorkers.size} workers, ${cloudAttendance.size} attendance records, and ${cloudCashbook.size} ledger entries from Firebase Cloud!")
-                }
-            } else {
-                onComplete(false, "Failed to connect to Firebase Cloud.")
-            }
+    suspend fun registerUser(
+        company: String,
+        name: String,
+        phone: String,
+        passwordOrPin: String,
+        email: String = ""
+    ): AuthResult {
+        val result = authManager.registerUserInFirebase(
+            company = company,
+            name = name,
+            phone = phone,
+            passwordOrPin = passwordOrPin,
+            email = email
+        )
+        if (result is AuthResult.Success) {
+            val user = result.user
+            val profile = result.profile
+            val finalName = profile?.managerName?.ifBlank { name } ?: name
+            val finalCompany = profile?.companyName?.ifBlank { company } ?: company
+            val finalPhone = profile?.phone?.ifBlank { phone } ?: phone
+            val finalEmail = profile?.email?.ifBlank { email } ?: email
+
+            prefs.edit()
+                .putBoolean("is_logged_in", true)
+                .putString("company_name", finalCompany)
+                .putString("user_name", finalName)
+                .putString("user_phone", finalPhone)
+                .putString("user_email", finalEmail)
+                .putString("user_pin_$finalPhone", passwordOrPin)
+                .putString("user_pass_$finalPhone", passwordOrPin)
+                .apply()
+
+            isLoggedIn.value = true
+            loggedInCompanyName.value = finalCompany
+            loggedInUserName.value = finalName
+            loggedInPhone.value = finalPhone
+            loggedInEmail.value = finalEmail
         }
+        return result
     }
 
     fun updateUserProfile(name: String, company: String, phone: String, email: String = "") {
@@ -478,11 +434,22 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
         loggedInCompanyName.value = company
         loggedInPhone.value = phone
         loggedInEmail.value = email
-    }
 
-    fun updateLanguage(lang: String) {
-        prefs.edit().putString("app_language", lang).apply()
-        selectedLanguage.value = lang
+        viewModelScope.launch {
+            val user = authManager.getCurrentUser()
+            if (user != null) {
+                authManager.saveProfileToFirestore(
+                    UserProfile(
+                        uid = user.uid,
+                        companyName = company,
+                        managerName = name,
+                        phone = phone,
+                        email = email.ifBlank { user.email ?: "" }
+                    ),
+                    authEmail = user.email ?: "${phone}@${AuthenticationManager.EMAIL_DOMAIN}"
+                )
+            }
+        }
     }
 
     fun updateAppLock(enabled: Boolean, pin: String) {
@@ -522,20 +489,6 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
     fun maskAmountVal(amountVal: Any, prefix: String = "₹", suffix: String = ""): String {
         if (isAmountsHidden.value) return "$prefix••••$suffix"
         return "$prefix$amountVal$suffix"
-    }
-
-    fun quickDemoLogin() {
-        prefs.edit()
-            .putBoolean("is_logged_in", true)
-            .putString("company_name", "Madkiya Construction Pro")
-            .putString("user_name", "Azaz Madkiya")
-            .putString("user_phone", "9876543210")
-            .putString("user_pin_9876543210", "1234")
-            .apply()
-        isLoggedIn.value = true
-        loggedInCompanyName.value = "Madkiya Construction Pro"
-        loggedInUserName.value = "Azaz Madkiya"
-        loggedInPhone.value = "9876543210"
     }
 
     fun logout() {
@@ -587,33 +540,66 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
         return result
     }
 
+    suspend fun sendPasswordResetEmail(email: String): Result<Boolean> {
+        return authManager.sendPasswordResetEmail(email)
+    }
+
+    suspend fun signInWithGoogle(): AuthResult = firebaseSignInWithGoogle()
+
     suspend fun firebaseSignInWithGoogle(): AuthResult {
         val result = authManager.signInWithGoogle()
         if (result is AuthResult.Success) {
             val user = result.user
-            val name = user.displayName ?: user.email?.substringBefore("@") ?: "User"
-            val email = user.email ?: ""
+            val profile = result.profile
+            val name = profile?.managerName?.ifBlank { user.displayName ?: "User" }
+                ?: user.displayName ?: "User"
+            val company = profile?.companyName?.ifBlank { "My Business" } ?: "My Business"
+            val email = user.email ?: profile?.email ?: ""
+            val phone = profile?.phone ?: ""
+
             prefs.edit()
                 .putBoolean("is_logged_in", true)
                 .putString("user_name", name)
+                .putString("company_name", company)
                 .putString("user_email", email)
+                .putString("user_phone", phone)
                 .apply()
             isLoggedIn.value = true
             loggedInUserName.value = name
+            loggedInCompanyName.value = company
             loggedInEmail.value = email
+            if (phone.isNotBlank()) loggedInPhone.value = phone
         }
         return result
     }
 
     // Backup & Restore
+    suspend fun getFullBackupJson(): String {
+        val data = repository.getAllDataForBackup()
+        return BackupManager.exportToJson(
+            workers = data.workers,
+            attendanceRecords = data.attendanceRecords,
+            cashbookEntries = data.cashbookEntries,
+            notificationSetting = data.notificationSetting
+        )
+    }
+
     fun exportBackupJson(): String {
         return BackupManager.exportToJson(
             workers = workers.value,
             attendanceRecords = allAttendanceRecords.value,
             cashbookEntries = cashbookEntries.value,
-            geofenceConfig = geofenceConfig.value,
             notificationSetting = notificationSettings.value
         )
+    }
+
+    fun exportBackupJsonAsync(onReady: (String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val json = getFullBackupJson()
+            withContext(Dispatchers.Main) {
+                onReady(json)
+            }
+        }
     }
 
     fun restoreBackupData(
@@ -621,24 +607,27 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
         clearExisting: Boolean,
         onResult: (Boolean, String) -> Unit
     ) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
                 val backupData = BackupManager.importFromJson(jsonString)
                 repository.restoreBackupData(
                     workers = backupData.workers,
                     attendanceRecords = backupData.attendanceRecords,
                     cashbookEntries = backupData.cashbookEntries,
-                    geofenceConfig = backupData.geofenceConfig,
                     notificationSetting = backupData.notificationSetting,
                     clearExisting = clearExisting
                 )
-                onResult(
-                    true,
-                    "Successfully restored ${backupData.workers.size} workers, ${backupData.attendanceRecords.size} attendance records, and ${backupData.cashbookEntries.size} ledger entries."
-                )
+                withContext(Dispatchers.Main) {
+                    onResult(
+                        true,
+                        "Successfully restored ${backupData.workers.size} workers, ${backupData.attendanceRecords.size} attendance records, and ${backupData.cashbookEntries.size} ledger entries."
+                    )
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
-                onResult(false, "Failed to restore backup: ${e.localizedMessage}")
+                withContext(Dispatchers.Main) {
+                    onResult(false, "Failed to restore backup: ${e.localizedMessage ?: "Invalid file or format"}")
+                }
             }
         }
     }

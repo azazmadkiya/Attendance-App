@@ -35,16 +35,48 @@ import com.example.viewmodel.HaazriViewModel
 import java.text.SimpleDateFormat
 import java.util.*
 
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ExperimentalMaterial3Api
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CashbookScreen(viewModel: HaazriViewModel) {
     val entries by viewModel.cashbookEntries.collectAsState()
+    val workers by viewModel.workers.collectAsState()
     val isAmountsHidden by viewModel.isAmountsHidden.collectAsState()
     var showAddDialog by remember { mutableStateOf(false) }
 
+    var searchQuery by remember { mutableStateOf("") }
+    var dateFilter by remember { mutableStateOf("All Time") }
+
+    val filteredEntries = remember(entries, workers, searchQuery, dateFilter) {
+        entries.filter { entry ->
+            val searchLower = searchQuery.lowercase()
+            val workerName = workers.find { it.id == entry.workerId }?.name ?: ""
+            val matchesSearch = entry.notes.lowercase().contains(searchLower) ||
+                                entry.category.lowercase().contains(searchLower) ||
+                                workerName.lowercase().contains(searchLower) ||
+                                entry.date.contains(searchLower)
+
+            val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            val monthStr = SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(Date())
+            val matchesFilter = when (dateFilter) {
+                "Today" -> entry.date == todayStr
+                "This Month" -> entry.date.startsWith(monthStr)
+                else -> true
+            }
+            matchesSearch && matchesFilter
+        }
+    }
+
     // Calculate totals
-    val totalIncome = entries.filter { it.type == "INCOME" }.sumOf { it.amount }
-    val totalExpense = entries.filter { it.type == "EXPENSE" }.sumOf { it.amount }
-    val closingBalance = totalIncome - totalExpense
+    val totalIncome = filteredEntries.filter { it.type == "INCOME" }.sumOf { it.amount }
+    val totalExpense = filteredEntries.filter { it.type == "EXPENSE" }.sumOf { it.amount }
+    val closingBalance = totalIncome
 
     // Month display string
     val currentMonthStr = remember {
@@ -56,146 +88,161 @@ fun CashbookScreen(viewModel: HaazriViewModel) {
             .fillMaxSize()
             .background(Color(0xFFF7F5EE))
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Month Selector Bar (Screenshot 5)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color.White)
-                    .padding(vertical = 12.dp, horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(onClick = { /* Previous month */ }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Prev", tint = Color.DarkGray)
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 140.dp)
+        ) {
+            item {
+                // Month Selector Bar (Screenshot 5)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.White)
+                        .padding(vertical = 12.dp, horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { /* Previous month */ }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Prev", tint = Color.DarkGray)
+                    }
+                    Text(
+                        text = currentMonthStr,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1E293B)
+                    )
+                    IconButton(onClick = { /* Next month */ }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next", tint = Color.DarkGray)
+                    }
                 }
-                Text(
-                    text = currentMonthStr,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF1E293B)
-                )
-                IconButton(onClick = { /* Next month */ }) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next", tint = Color.DarkGray)
-                }
+                HorizontalDivider(color = Color(0xFFE2E8F0))
+                Spacer(modifier = Modifier.height(16.dp))
             }
 
-            Divider(color = Color(0xFFE2E8F0))
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Balance Summary Card (Exact Screenshot 5 design)
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFEEF2FF)), // Soft periwinkle/blue card
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Opening balance", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF475569))
-                        Text("₹0", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Closing balance", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF475569))
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(viewModel.maskAmount(closingBalance), fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E3A8A))
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Income & Expense Sub-Cards
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        // Income Box
-                        Card(
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color.White),
-                            modifier = Modifier.weight(1f)
+            item {
+                // Balance Summary Card (Exact Screenshot 5 design)
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFEEF2FF)), // Soft periwinkle/blue card
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(12.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFFE8F5E9)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.AutoMirrored.Filled.TrendingUp, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Text("Income", fontSize = 12.sp, color = Color.Gray)
-                                    Text(viewModel.maskAmount(totalIncome), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
-                                }
-                            }
+                            Text("Opening balance", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF475569))
+                            Text("₹0", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF475569))
                         }
 
-                        // Expense Box
-                        Card(
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = Color.White),
-                            modifier = Modifier.weight(1f)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Closing balance", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF475569))
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(viewModel.maskAmount(closingBalance), fontSize = 32.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E3A8A))
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Income Sub-Card
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(12.dp)
+                            // Income Box
+                            Card(
+                                shape = RoundedCornerShape(12.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.White),
+                                modifier = Modifier.weight(1f)
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(Color(0xFFFFEBEE)),
-                                    contentAlignment = Alignment.Center
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(12.dp)
                                 ) {
-                                    Icon(Icons.AutoMirrored.Filled.TrendingDown, contentDescription = null, tint = Color(0xFFC62828), modifier = Modifier.size(20.dp))
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Column {
-                                    Text("Expense", fontSize = 12.sp, color = Color.Gray)
-                                    Text(viewModel.maskAmount(totalExpense), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC62828))
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFFE8F5E9)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.TrendingUp, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(20.dp))
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text("Income", fontSize = 12.sp, color = Color.Gray)
+                                        Text(viewModel.maskAmount(totalIncome), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                Spacer(modifier = Modifier.height(16.dp))
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            item {
+                // Search & Filter Row
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search by name, category, date...") },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.horizontalScroll(rememberScrollState())
+                    ) {
+                        listOf("All Time", "This Month", "Today").forEach { filter ->
+                            FilterChip(
+                                selected = dateFilter == filter,
+                                onClick = { dateFilter = filter },
+                                label = { Text(filter) }
+                            )
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
             // Transactions Body
             if (entries.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
-                ) {
-                    EmptyStateView(
-                        icon = Icons.Default.ReceiptLong,
-                        title = "No Cashbook Transactions",
-                        description = "Log site expenses, cash advances, material receipts, or payments to maintain clear financial records.",
-                        actionLabel = "+ Add First Entry",
-                        onActionClick = { showAddDialog = true },
-                        testTag = "empty_cashbook_state"
-                    )
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(300.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        EmptyStateView(
+                            icon = Icons.Default.ReceiptLong,
+                            title = "No Cashbook Transactions",
+                            description = "Log site expenses, cash advances, material receipts, or payments to maintain clear financial records.",
+                            actionLabel = "+ Add First Entry",
+                            onActionClick = { showAddDialog = true },
+                            testTag = "empty_cashbook_state"
+                        )
+                    }
+                }
+            } else if (filteredEntries.isEmpty()) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("No transactions found.", color = Color.Gray, fontSize = 16.sp)
+                    }
                 }
             } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(start = 16.dp, top = 0.dp, end = 16.dp, bottom = 100.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    items(entries, key = { it.id }) { entry ->
+                items(filteredEntries, key = { it.id }) { entry ->
+                    Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp)) {
                         CashbookEntryCard(entry = entry, isAmountsHidden = isAmountsHidden, onDelete = { viewModel.deleteCashbookEntry(entry) })
                     }
                 }
@@ -336,34 +383,6 @@ fun AddCashbookEntryDialog(
         title = { Text("Add Cashbook Entry", fontWeight = FontWeight.Bold) },
         text = {
             Column {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Color(0xFFE2E8F0), RoundedCornerShape(20.dp))
-                        .padding(3.dp)
-                ) {
-                    listOf("INCOME", "EXPENSE").forEach { t ->
-                        val isSelected = type == t
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .background(if (isSelected) (if (t == "INCOME") Color(0xFF2E7D32) else Color(0xFFC62828)) else Color.Transparent, RoundedCornerShape(18.dp))
-                                .clickable { type = t }
-                                .padding(vertical = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = if (t == "INCOME") "Income (+)" else "Expense (-)",
-                                fontWeight = FontWeight.Bold,
-                                color = if (isSelected) Color.White else Color(0xFF64748B),
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
                 OutlinedTextField(
                     value = amount,
                     onValueChange = { amount = it },

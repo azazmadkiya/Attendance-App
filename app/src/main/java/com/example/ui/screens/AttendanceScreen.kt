@@ -40,6 +40,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AttendanceScreen(viewModel: HaazriViewModel) {
     val workers by viewModel.workers.collectAsState()
@@ -48,6 +49,26 @@ fun AttendanceScreen(viewModel: HaazriViewModel) {
     val mode by viewModel.attendanceMode.collectAsState()
     val rollCallIndex by viewModel.rollCallIndex.collectAsState()
     val isAmountsHidden by viewModel.isAmountsHidden.collectAsState()
+
+    var searchQuery by remember { mutableStateOf("") }
+    var statusFilter by remember { mutableStateOf("All") }
+
+    val filteredWorkers = remember(workers, attendanceRecords, searchQuery, statusFilter) {
+        workers.filter { worker ->
+            val matchesSearch = worker.name.contains(searchQuery, ignoreCase = true)
+            val record = attendanceRecords.find { it.workerId == worker.id }
+            val status = record?.status
+            val matchesFilter = when (statusFilter) {
+                "Present" -> status == "P"
+                "Absent" -> status == "A"
+                "Half" -> status == "1/2"
+                "Off" -> status == "O"
+                "Not Marked" -> status == null
+                else -> true
+            }
+            matchesSearch && matchesFilter
+        }
+    }
 
     var workerForManualAmount by remember { mutableStateOf<Worker?>(null) }
 
@@ -84,155 +105,198 @@ fun AttendanceScreen(viewModel: HaazriViewModel) {
         }
     }
 
-    Column(
+    LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF7F5EE))
+            .background(Color(0xFFF7F5EE)),
+        contentPadding = PaddingValues(bottom = 120.dp)
     ) {
-        // Date Selector Bar
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color.White)
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(
-                onClick = { viewModel.changeDateByDays(-1) },
-                modifier = Modifier.testTag("prev_date_btn")
-            ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous Day", tint = Color.DarkGray)
-            }
-
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = Color(0xFFF1F5F9),
-                modifier = Modifier.clickable {
-                    // Open Android DatePicker
-                    val cal = Calendar.getInstance()
-                    val dpd = DatePickerDialog(
-                        context,
-                        { _, year, month, dayOfMonth ->
-                            val newCal = Calendar.getInstance()
-                            newCal.set(year, month, dayOfMonth)
-                            val formatted = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(newCal.time)
-                            viewModel.selectedDate.value = formatted
-                        },
-                        cal.get(Calendar.YEAR),
-                        cal.get(Calendar.MONTH),
-                        cal.get(Calendar.DAY_OF_MONTH)
-                    )
-                    dpd.show()
-                }
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
-                    Icon(Icons.Default.CalendarToday, contentDescription = null, tint = Color(0xFF1E3A8A), modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(displayDateStr, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF1E293B))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color.Gray)
-                }
-            }
-
-            IconButton(
-                onClick = { viewModel.changeDateByDays(1) },
-                modifier = Modifier.testTag("next_date_btn")
-            ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next Day", tint = Color.DarkGray)
-            }
-        }
-
-        Divider(color = Color(0xFFE2E8F0))
-
-        // Actions Row: "Mark all present" + Mode Switcher ("List" / "Roll-call")
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Button(
-                onClick = { viewModel.markAllPresent() },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE0E7FF)),
-                shape = RoundedCornerShape(20.dp),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                modifier = Modifier.testTag("mark_all_present_btn")
-            ) {
-                Text("Mark all present", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF1E3A8A))
-            }
-
-            // Mode Selector
+        item {
+            // Date Selector Bar
             Row(
                 modifier = Modifier
-                    .background(Color(0xFFE2E8F0), RoundedCornerShape(20.dp))
-                    .padding(3.dp)
+                    .fillMaxWidth()
+                    .background(Color.White)
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                listOf("List", "Roll-call").forEach { m ->
-                    val isSelected = mode == m
-                    Box(
-                        modifier = Modifier
-                            .background(if (isSelected) Color.White else Color.Transparent, RoundedCornerShape(16.dp))
-                            .clickable { viewModel.attendanceMode.value = m }
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                IconButton(
+                    onClick = { viewModel.changeDateByDays(-1) },
+                    modifier = Modifier.testTag("prev_date_btn")
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous Day", tint = Color.DarkGray)
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = Color(0xFFF1F5F9),
+                    modifier = Modifier.clickable {
+                        // Open Android DatePicker
+                        val cal = Calendar.getInstance()
+                        val dpd = DatePickerDialog(
+                            context,
+                            { _, year, month, dayOfMonth ->
+                                val newCal = Calendar.getInstance()
+                                newCal.set(year, month, dayOfMonth)
+                                val formatted = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(newCal.time)
+                                viewModel.selectedDate.value = formatted
+                            },
+                            cal.get(Calendar.YEAR),
+                            cal.get(Calendar.MONTH),
+                            cal.get(Calendar.DAY_OF_MONTH)
+                        )
+                        dpd.show()
+                    }
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
-                        Text(
-                            text = m,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) Color(0xFF1E3A8A) else Color(0xFF64748B),
-                            fontSize = 13.sp
+                        Icon(Icons.Default.CalendarToday, contentDescription = null, tint = Color(0xFF1E3A8A), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(displayDateStr, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF1E293B))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color.Gray)
+                    }
+                }
+
+                IconButton(
+                    onClick = { viewModel.changeDateByDays(1) },
+                    modifier = Modifier.testTag("next_date_btn")
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next Day", tint = Color.DarkGray)
+                }
+            }
+
+            HorizontalDivider(color = Color(0xFFE2E8F0))
+        }
+
+        item {
+            // Search & Filter Row
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search by name...") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    listOf("All", "Present", "Absent", "Half", "Off", "Not Marked").forEach { filter ->
+                        FilterChip(
+                            selected = statusFilter == filter,
+                            onClick = { statusFilter = filter },
+                            label = { Text(filter) }
                         )
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
-
-        // Status Legend Row
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            LegendItem("Present", PresentGreenText)
-            LegendItem("Absent", AbsentRedText)
-            LegendItem("Half", HalfOrangeText)
-            LegendItem("Off", OffGrayText)
-        }
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        if (workers.isEmpty()) {
-            Box(
+        item {
+            // Actions Row: "Mark all present" + Mode Switcher ("List" / "Roll-call")
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .weight(1f),
-                contentAlignment = Alignment.Center
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                EmptyStateView(
-                    icon = Icons.Default.EventNote,
-                    title = "No Attendance Records",
-                    description = "No workers are available to mark attendance for this date. Add workers to your roster to start recording daily attendance.",
-                    actionLabel = "+ Add Workers",
-                    onActionClick = { viewModel.activeScreen.value = com.example.viewmodel.ScreenState.ADD_WORKER },
-                    testTag = "empty_attendance_state"
-                )
+                Button(
+                    onClick = { viewModel.markAllPresent() },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE0E7FF)),
+                    shape = RoundedCornerShape(20.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    modifier = Modifier.testTag("mark_all_present_btn")
+                ) {
+                    Text("Mark all present", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF1E3A8A))
+                }
+
+                // Mode Selector
+                Row(
+                    modifier = Modifier
+                        .background(Color(0xFFE2E8F0), RoundedCornerShape(20.dp))
+                        .padding(3.dp)
+                ) {
+                    listOf("List", "Roll-call").forEach { m ->
+                        val isSelected = mode == m
+                        Box(
+                            modifier = Modifier
+                                .background(if (isSelected) Color.White else Color.Transparent, RoundedCornerShape(16.dp))
+                                .clickable { viewModel.attendanceMode.value = m }
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = m,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isSelected) Color(0xFF1E3A8A) else Color(0xFF64748B),
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Status Legend Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                LegendItem("Present", PresentGreenText)
+                LegendItem("Absent", AbsentRedText)
+                LegendItem("Half", HalfOrangeText)
+                LegendItem("Off", OffGrayText)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+
+        if (workers.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .height(300.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    EmptyStateView(
+                        icon = Icons.Default.EventNote,
+                        title = "No Attendance Records",
+                        description = "No workers are available to mark attendance for this date. Add workers to your roster to start recording daily attendance.",
+                        actionLabel = "+ Add Workers",
+                        onActionClick = { viewModel.activeScreen.value = com.example.viewmodel.ScreenState.ADD_WORKER },
+                        testTag = "empty_attendance_state"
+                    )
+                }
+            }
+        } else if (filteredWorkers.isEmpty()) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .height(200.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("No workers found matching your search.", color = Color.Gray, fontSize = 16.sp)
+                }
             }
         } else if (mode == "List") {
             // Mode 1: List View
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-                contentPadding = PaddingValues(start = 16.dp, top = 0.dp, end = 16.dp, bottom = 24.dp),
-                modifier = Modifier.weight(1f)
-            ) {
-                items(workers, key = { it.id }) { worker ->
+            items(filteredWorkers, key = { it.id }) { worker ->
+                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 5.dp)) {
                     val record = attendanceRecords.find { it.workerId == worker.id }
                     AttendanceWorkerRowCard(
                         worker = worker,
@@ -249,34 +313,36 @@ fun AttendanceScreen(viewModel: HaazriViewModel) {
             }
         } else {
             // Mode 2: Roll-call View (Screenshot 7)
-            val total = workers.size
-            val safeIndex = rollCallIndex.coerceIn(0, (total - 1).coerceAtLeast(0))
-            val currentWorker = workers.getOrNull(safeIndex)
-            val record = currentWorker?.let { w -> attendanceRecords.find { it.workerId == w.id } }
+            item {
+                val total = filteredWorkers.size
+                val safeIndex = rollCallIndex.coerceIn(0, (total - 1).coerceAtLeast(0))
+                val currentWorker = filteredWorkers.getOrNull(safeIndex)
+                val record = currentWorker?.let { w -> attendanceRecords.find { it.workerId == w.id } }
 
-            if (currentWorker != null) {
-                RollCallCard(
-                    worker = currentWorker,
-                    currentRecord = record,
-                    isAmountsHidden = isAmountsHidden,
-                    index = safeIndex + 1,
-                    total = total,
-                    onStatusSelected = { status ->
-                        viewModel.setAttendance(currentWorker.id, status)
-                        if (safeIndex < total - 1) {
-                            viewModel.rollCallIndex.value = safeIndex + 1
+                if (currentWorker != null) {
+                    RollCallCard(
+                        worker = currentWorker,
+                        currentRecord = record,
+                        isAmountsHidden = isAmountsHidden,
+                        index = safeIndex + 1,
+                        total = total,
+                        onStatusSelected = { status ->
+                            viewModel.setAttendance(currentWorker.id, status)
+                            if (safeIndex < total - 1) {
+                                viewModel.rollCallIndex.value = safeIndex + 1
+                            }
+                        },
+                        onOpenManualAmount = {
+                            workerForManualAmount = currentWorker
+                        },
+                        onPrevious = {
+                            if (safeIndex > 0) viewModel.rollCallIndex.value = safeIndex - 1
+                        },
+                        onSkip = {
+                            if (safeIndex < total - 1) viewModel.rollCallIndex.value = safeIndex + 1
                         }
-                    },
-                    onOpenManualAmount = {
-                        workerForManualAmount = currentWorker
-                    },
-                    onPrevious = {
-                        if (safeIndex > 0) viewModel.rollCallIndex.value = safeIndex - 1
-                    },
-                    onSkip = {
-                        if (safeIndex < total - 1) viewModel.rollCallIndex.value = safeIndex + 1
-                    }
-                )
+                    )
+                }
             }
         }
     }
@@ -344,7 +410,7 @@ fun AttendanceWorkerRowCard(
                     Spacer(modifier = Modifier.height(2.dp))
                     val wageStr = if (isAmountsHidden) "₹••••" else "₹${worker.wageRate.toInt()}"
                     Text(
-                        text = "$wageStr/mo${if (currentRecord?.isGeofenceVerified == true) " • 📍 Geofenced" else ""}",
+                        text = "$wageStr/mo",
                         fontSize = 13.sp,
                         color = Color(0xFF64748B),
                         maxLines = 1,

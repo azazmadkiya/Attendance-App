@@ -142,21 +142,21 @@ fun DataSafetyScreen(viewModel: HaazriViewModel) {
                     title = "Data is Encrypted in Transit & at Rest",
                     desc = "Device sandbox and TLS encryption protocols safeguard all transmissions."
                 )
-                Divider(color = Color(0xFFF1F5F9), modifier = Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(color = Color(0xFFF1F5F9), modifier = Modifier.padding(vertical = 8.dp))
 
                 SafetyBadgeRow(
                     icon = Icons.Outlined.DoNotDisturbOn,
                     title = "No Data Shared with Third-Party Advertisers",
                     desc = "We do not sell personal or worker records to ad networks or data aggregators."
                 )
-                Divider(color = Color(0xFFF1F5F9), modifier = Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(color = Color(0xFFF1F5F9), modifier = Modifier.padding(vertical = 8.dp))
 
                 SafetyBadgeRow(
                     icon = Icons.Outlined.Storage,
                     title = "Local-First Storage (Room SQLite)",
                     desc = "Your staff database lives on your local Android device."
                 )
-                Divider(color = Color(0xFFF1F5F9), modifier = Modifier.padding(vertical = 8.dp))
+                HorizontalDivider(color = Color(0xFFF1F5F9), modifier = Modifier.padding(vertical = 8.dp))
 
                 SafetyBadgeRow(
                     icon = Icons.Outlined.DeleteForever,
@@ -182,13 +182,6 @@ fun DataSafetyScreen(viewModel: HaazriViewModel) {
                     color = Color(0xFF1E293B)
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-
-                PermissionExplainer(
-                    name = "Location (ACCESS_FINE_LOCATION)",
-                    status = "Optional • When In Use Only",
-                    reason = "Used exclusively to check whether the supervisor is inside the designated site Geofence boundary during attendance check-in."
-                )
-                Spacer(modifier = Modifier.height(10.dp))
 
                 PermissionExplainer(
                     name = "Notifications (POST_NOTIFICATIONS)",
@@ -259,14 +252,14 @@ fun DataSafetyScreen(viewModel: HaazriViewModel) {
                         val intent = Intent(Intent.ACTION_SENDTO).apply {
                             data = Uri.parse("mailto:azazmadkiya@gmail.com?subject=Account%20and%20Data%20Deletion%20Request")
                         }
-                        context.startActivity(Intent.createChooser(intent, "Request Cloud Data Deletion"))
+                        context.startActivity(Intent.createChooser(intent, "Request Account Deletion"))
                     },
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Outlined.Email, contentDescription = null, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Request Cloud Account Deletion", fontSize = 13.sp)
+                    Text("Request Auth Account Deletion", fontSize = 13.sp)
                 }
             }
         }

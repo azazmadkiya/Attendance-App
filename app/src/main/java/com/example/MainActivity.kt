@@ -33,11 +33,20 @@ import com.example.viewmodel.HaazriViewModel
 import com.example.viewmodel.ScreenState
 
 class MainActivity : FragmentActivity() {
+    private var crashTrace: String? by mutableStateOf(null)
     private val viewModel: HaazriViewModel by viewModels()
     private lateinit var appLockManager: AppLockManager
     private var processObserver: DefaultLifecycleObserver? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val originalHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, exception ->
+            val sw = java.io.StringWriter()
+            exception.printStackTrace(java.io.PrintWriter(sw))
+            runOnUiThread {
+                crashTrace = sw.toString()
+            }
+        }
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         appLockManager = AppLockManager(this)
@@ -53,7 +62,16 @@ class MainActivity : FragmentActivity() {
         // Create system notification channels
         NotificationHelper.createNotificationChannels(this)
 
+        // Schedule automatic 24-hour WorkManager backup task
+        com.example.util.AutoBackupScheduler.scheduleDailyBackup(this)
+
         setContent {
+            if (crashTrace != null) {
+                com.example.ui.screens.CrashScreen(crashTrace!!) {
+                    crashTrace = null
+                }
+                return@setContent
+            }
             // Request notification permission safely in Compose on Android 13+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 val context = LocalContext.current
@@ -83,7 +101,7 @@ class MainActivity : FragmentActivity() {
                     )
                 } else {
                     val isLoggedIn by viewModel.isLoggedIn.collectAsState()
-                    val savedPin by appLockManager.getPin().collectAsState(initial = "LOADING")
+                    val savedPin by appLockManager.pinFlow.collectAsState(initial = "LOADING")
                     val isUnlocked by appLockManager.isUnlocked.collectAsState()
 
                     if (savedPin == "LOADING") {
@@ -133,7 +151,6 @@ fun HaazriApp(viewModel: HaazriViewModel) {
         ScreenState.ADD_WORKER -> "Add worker"
         ScreenState.SELECT_CONTACT -> "Select Contact"
         ScreenState.WORKER_DETAILS -> "Worker Details"
-        ScreenState.GEOFENCE_ADMIN -> "Geofence Settings"
         ScreenState.NOTIFICATIONS_SETUP -> "Reminders & Notifications"
         ScreenState.MONTHLY_REPORT -> "Monthly Report"
         ScreenState.BACKUP_RESTORE -> "Backup & Restore"
@@ -201,7 +218,6 @@ fun HaazriApp(viewModel: HaazriViewModel) {
                     }
                 )
                 ScreenState.WORKER_DETAILS -> WorkerDetailsScreen(viewModel = viewModel)
-                ScreenState.GEOFENCE_ADMIN -> GeofenceAdminScreen(viewModel = viewModel)
                 ScreenState.NOTIFICATIONS_SETUP -> NotificationsSetupScreen(viewModel = viewModel)
                 ScreenState.MONTHLY_REPORT -> MonthlyReportScreen(viewModel = viewModel)
                 ScreenState.BACKUP_RESTORE -> BackupRestoreScreen(viewModel = viewModel)

@@ -173,7 +173,7 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
             date = rec.date,
             title = "Daily Attendance ($statusName)",
             category = "Earned Wage",
-            notes = "Check-in: ${rec.checkInTime.ifEmpty { "09:00 AM" }}${if (rec.isGeofenceVerified) " • Geofenced" else ""}$customNote",
+            notes = "Check-in: ${rec.checkInTime.ifEmpty { "09:00 AM" }}$customNote",
             amount = dailyWage.netDailyWage,
             isCredit = true
         )
@@ -413,6 +413,7 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFFF7F5EE))
+            .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
         // Profile Header Card
@@ -794,7 +795,7 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = "Attendance Logs (${attendanceHistory.size})",
+                    text = "Attendance Logs (${filteredAttendanceHistory.size})",
                     fontWeight = FontWeight.Bold,
                     fontSize = 13.sp,
                     color = if (activeHistoryTab == 0) Color.White else Color(0xFF64748B)
@@ -839,11 +840,11 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
                 Spacer(modifier = Modifier.height(12.dp))
             }
 
-            if (attendanceHistory.isEmpty()) {
+            if (filteredAttendanceHistory.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
+                        .padding(vertical = 32.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     EmptyStateView(
@@ -854,11 +855,11 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
                     )
                 }
             } else {
-                LazyColumn(
+                Column(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(attendanceHistory) { rec ->
+                    filteredAttendanceHistory.forEach { rec ->
                         val dailyWage = viewModel.getDailyWageBreakdown(currentWorker, rec)
 
                         Card(
@@ -918,7 +919,7 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
+                        .padding(vertical = 32.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     EmptyStateView(
@@ -929,11 +930,11 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
                     )
                 }
             } else {
-                LazyColumn(
+                Column(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(combinedLedgerList, key = { it.id }) { item ->
+                    combinedLedgerList.forEach { item ->
                         Card(
                             shape = RoundedCornerShape(10.dp),
                             colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -1572,3 +1573,4 @@ fun ModifyWorkerDialog(
         }
     )
 }
+// Re-triggering app sync to recover from MTaaS Tools fallback

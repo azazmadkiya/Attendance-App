@@ -117,7 +117,10 @@ fun HaazriBottomBar(
                     Text(
                         text = label,
                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        fontSize = 12.sp
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                 },
                 colors = NavigationBarItemDefaults.colors(

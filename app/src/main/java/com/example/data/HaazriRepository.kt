@@ -1,15 +1,15 @@
 package com.example.data
 
+import androidx.room.withTransaction
+import com.example.util.BackupData
 import kotlinx.coroutines.flow.Flow
 
 class HaazriRepository(
-    private val db: HaazriDatabase,
-    private val cloudSync: FirebaseCloudSyncManager = FirebaseCloudSyncManager()
+    private val db: HaazriDatabase
 ) {
     val allWorkers: Flow<List<Worker>> = db.workerDao().getAllWorkers()
     val allAttendanceRecords: Flow<List<AttendanceRecord>> = db.attendanceDao().getAllAttendanceRecords()
     val allCashbookEntries: Flow<List<CashbookEntry>> = db.cashbookDao().getAllEntries()
-    val geofenceConfig: Flow<GeofenceConfig?> = db.settingsDao().getGeofenceConfig()
     val notificationSettings: Flow<NotificationSetting?> = db.settingsDao().getNotificationSettings()
 
     fun searchWorkers(query: String): Flow<List<Worker>> = db.workerDao().searchWorkers(query)
@@ -18,20 +18,16 @@ class HaazriRepository(
 
     suspend fun insertWorker(worker: Worker): Long {
         val id = db.workerDao().insertWorker(worker)
-        val savedWorker = worker.copy(id = id)
-        cloudSync.syncWorkerToCloud(savedWorker)
         return id
     }
 
     suspend fun updateWorker(worker: Worker) {
         db.workerDao().updateWorker(worker)
-        cloudSync.syncWorkerToCloud(worker)
     }
 
     suspend fun deleteWorker(worker: Worker) {
         db.attendanceDao().deleteAttendanceForWorker(worker.id)
         db.workerDao().deleteWorker(worker)
-        cloudSync.deleteWorkerFromCloud(worker.id)
     }
 
     suspend fun deleteAllWorkers() {
@@ -56,9 +52,6 @@ class HaazriRepository(
         checkInTime: String = "",
         checkOutTime: String = "",
         customAmount: Double? = null,
-        isGeofenceVerified: Boolean = false,
-        latitude: Double = 0.0,
-        longitude: Double = 0.0,
         notes: String? = null
     ) {
         val existing = db.attendanceDao().getRecordForWorkerAndDate(workerId, date)
@@ -69,9 +62,6 @@ class HaazriRepository(
             checkInTime = if (checkInTime.isNotEmpty()) checkInTime else existing.checkInTime,
             checkOutTime = if (checkOutTime.isNotEmpty()) checkOutTime else existing.checkOutTime,
             customAmount = newCustomAmount,
-            isGeofenceVerified = isGeofenceVerified || existing.isGeofenceVerified,
-            latitude = if (latitude != 0.0) latitude else existing.latitude,
-            longitude = if (longitude != 0.0) longitude else existing.longitude,
             notes = newNotes
         ) ?: AttendanceRecord(
             workerId = workerId,
@@ -80,58 +70,127 @@ class HaazriRepository(
             checkInTime = checkInTime,
             checkOutTime = checkOutTime,
             customAmount = newCustomAmount,
-            isGeofenceVerified = isGeofenceVerified,
-            latitude = latitude,
-            longitude = longitude,
             notes = newNotes
         )
         db.attendanceDao().insertOrUpdateAttendance(record)
-        cloudSync.syncAttendanceToCloud(record)
     }
 
     suspend fun markAllWorkersPresent(date: String, workers: List<Worker>) {
-        workers.forEach { worker ->
-            setWorkerAttendance(worker.id, date, "P", checkInTime = "09:00 AM")
+        db.withTransaction {
+            workers.forEach { worker ->
+                setWorkerAttendance(worker.id, date, "P", checkInTime = "09:00 AM")
+            }
         }
     }
 
     suspend fun insertCashbookEntry(entry: CashbookEntry) {
         db.cashbookDao().insertEntry(entry)
-        cloudSync.syncCashbookToCloud(entry)
     }
 
     suspend fun deleteCashbookEntry(entry: CashbookEntry) = db.cashbookDao().deleteEntry(entry)
 
-    suspend fun saveGeofenceConfig(config: GeofenceConfig) = db.settingsDao().saveGeofenceConfig(config)
-
     suspend fun saveNotificationSettings(settings: NotificationSetting) = db.settingsDao().saveNotificationSettings(settings)
+
+    suspend fun getAllDataForBackup(): BackupData {
+        val workersList = db.workerDao().getAllWorkersList()
+        val attendanceList = db.attendanceDao().getAllAttendanceList()
+        val cashbookList = db.cashbookDao().getAllEntriesList()
+        val notif = db.settingsDao().getNotificationSettingsSync()
+        return BackupData(
+            workers = workersList,
+            attendanceRecords = attendanceList,
+            cashbookEntries = cashbookList,
+            notificationSetting = notif
+        )
+    }
 
     suspend fun restoreBackupData(
         workers: List<Worker>,
         attendanceRecords: List<AttendanceRecord>,
         cashbookEntries: List<CashbookEntry>,
-        geofenceConfig: GeofenceConfig?,
         notificationSetting: NotificationSetting?,
         clearExisting: Boolean
     ) {
-        if (clearExisting) {
-            db.cashbookDao().deleteAllCashbookEntries()
-            db.attendanceDao().deleteAllAttendanceRecords()
-            db.workerDao().deleteAllWorkers()
+        db.withTransaction {
+            val workerIdMap = mutableMapOf<Long, Long>()
+            if (clearExisting) {
+                db.cashbookDao().deleteAllCashbookEntries()
+                db.attendanceDao().deleteAllAttendanceRecords()
+                db.workerDao().deleteAllWorkers()
+
+                // Overwrite mode: insert each worker freshly to obtain verified clean IDs
+                workers.forEach { worker ->
+                    val assignedId = db.workerDao().insertWorker(worker.copy(id = 0))
+                    if (worker.id != 0L) {
+                        workerIdMap[worker.id] = assignedId
+                    }
+                    workerIdMap[assignedId] = assignedId
+                }
+
+                // Insert attendance records with remapped worker IDs
+                attendanceRecords.forEach { record ->
+                    val remappedWorkerId = workerIdMap[record.workerId] ?: record.workerId
+                    db.attendanceDao().insertOrUpdateAttendance(
+                        record.copy(id = 0, workerId = remappedWorkerId)
+                    )
+                }
+
+                // Insert cashbook entries with remapped worker IDs
+                cashbookEntries.forEach { entry ->
+                    val remappedWorkerId = entry.workerId?.let { workerIdMap[it] ?: it }
+                    db.cashbookDao().insertEntry(
+                        entry.copy(id = 0, workerId = remappedWorkerId)
+                    )
+                }
+            } else {
+                // Merge mode: check existing workers to prevent duplicate creation
+                val existingWorkers = db.workerDao().getAllWorkersList()
+
+                workers.forEach { worker ->
+                    val existing = existingWorkers.find {
+                        (it.phone.isNotBlank() && it.phone == worker.phone) ||
+                        (it.name.equals(worker.name, ignoreCase = true) && it.wageType == worker.wageType)
+                    }
+
+                    if (existing != null) {
+                        // Re-use existing worker id
+                        if (worker.id != 0L) {
+                            workerIdMap[worker.id] = existing.id
+                        }
+                        workerIdMap[existing.id] = existing.id
+                    } else {
+                        // New worker: insert with new auto-generated ID
+                        val newId = db.workerDao().insertWorker(worker.copy(id = 0))
+                        if (worker.id != 0L) {
+                            workerIdMap[worker.id] = newId
+                        }
+                        workerIdMap[newId] = newId
+                    }
+                }
+
+                // Merge attendance records without duplicating same date for same worker
+                attendanceRecords.forEach { record ->
+                    val remappedWorkerId = workerIdMap[record.workerId] ?: record.workerId
+                    val existingRecord = db.attendanceDao().getRecordForWorkerAndDate(remappedWorkerId, record.date)
+                    if (existingRecord == null) {
+                        db.attendanceDao().insertOrUpdateAttendance(
+                            record.copy(id = 0, workerId = remappedWorkerId)
+                        )
+                    }
+                }
+
+                // Merge cashbook entries
+                cashbookEntries.forEach { entry ->
+                    val remappedWorkerId = entry.workerId?.let { workerIdMap[it] ?: it }
+                    db.cashbookDao().insertEntry(
+                        entry.copy(id = 0, workerId = remappedWorkerId)
+                    )
+                }
+            }
+
+            if (notificationSetting != null) {
+                db.settingsDao().saveNotificationSettings(notificationSetting)
+            }
         }
-
-        workers.forEach { db.workerDao().insertWorker(it) }
-        attendanceRecords.forEach { db.attendanceDao().insertOrUpdateAttendance(it) }
-        cashbookEntries.forEach { db.cashbookDao().insertEntry(it) }
-        if (geofenceConfig != null) db.settingsDao().saveGeofenceConfig(geofenceConfig)
-        if (notificationSetting != null) db.settingsDao().saveNotificationSettings(notificationSetting)
-
-        cloudSync.syncFullDatabaseToCloud(workers, attendanceRecords, cashbookEntries)
-    }
-
-    suspend fun syncAllToCloud(accountPhone: String? = null): Boolean {
-        val currentWorkers = db.workerDao().getAllWorkers()
-        // Read current state
-        return true
     }
 }

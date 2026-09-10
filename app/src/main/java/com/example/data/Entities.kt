@@ -49,17 +49,6 @@ data class CashbookEntry(
     val notes: String = ""
 )
 
-@Entity(tableName = "geofence_config")
-data class GeofenceConfig(
-    @PrimaryKey val id: Int = 1,
-    val officeName: String = "Main HQ Office",
-    val latitude: Double = 28.6139, // Default New Delhi / Admin HQ
-    val longitude: Double = 77.2090,
-    val radiusMeters: Float = 200f,
-    val isEnabled: Boolean = true,
-    val autoMarkPresent: Boolean = true
-)
-
 @Entity(tableName = "notification_settings")
 data class NotificationSetting(
     @PrimaryKey val id: Int = 1,

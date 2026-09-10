@@ -167,46 +167,14 @@ fun PrivacyPolicyScreen(viewModel: HaazriViewModel) {
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Section 3: Location Data & Geofence Policy
-        PolicyCard(
-            title = "3. Location Data & Geofencing",
-            icon = Icons.Outlined.LocationOn
-        ) {
-            Text(
-                text = "Our app offers an optional Geofenced Attendance feature to verify if employees or supervisors are within the designated work site or office radius.",
-                fontSize = 13.sp,
-                color = Color(0xFF334155),
-                lineHeight = 18.sp
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            PolicyBullet(
-                title = "On-Device Location Verification:",
-                desc = "GPS coordinates are accessed strictly during active attendance logging to compute proximity to the preset work site."
-            )
-            PolicyBullet(
-                title = "No Background Tracking:",
-                desc = "We DO NOT track your continuous location in the background or monitor your movements when the app is closed."
-            )
-            PolicyBullet(
-                title = "No Sale of Location Data:",
-                desc = "Location coordinates are never sold, rented, or shared with third-party advertising brokers."
-            )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
         // Section 4: Device Permissions
         PolicyCard(
-            title = "4. Device Permissions & Purpose",
+            title = "3. Device Permissions & Purpose",
             icon = Icons.Outlined.Key
         ) {
             PolicyBullet(
                 title = "POST_NOTIFICATIONS:",
                 desc = "To deliver daily attendance marking reminders, salary settlement alerts, and local backup notifications."
-            )
-            PolicyBullet(
-                title = "ACCESS_FINE / COARSE_LOCATION:",
-                desc = "Required strictly for verifying site boundaries in Geofence Attendance mode."
             )
             PolicyBullet(
                 title = "READ_CONTACTS (Optional):",
@@ -222,7 +190,7 @@ fun PrivacyPolicyScreen(viewModel: HaazriViewModel) {
 
         // Section 5: Data Storage & Security
         PolicyCard(
-            title = "5. Data Storage, Security & Backup",
+            title = "4. Data Storage, Security & Backup",
             icon = Icons.Outlined.Shield
         ) {
             PolicyBullet(
@@ -243,7 +211,7 @@ fun PrivacyPolicyScreen(viewModel: HaazriViewModel) {
 
         // Section 6: Data Deletion Rights
         PolicyCard(
-            title = "6. User Rights & Data Deletion",
+            title = "5. User Rights & Data Deletion",
             icon = Icons.Outlined.DeleteForever
         ) {
             Text(
@@ -267,7 +235,7 @@ fun PrivacyPolicyScreen(viewModel: HaazriViewModel) {
 
         // Section 7: Third-Party SDKs
         PolicyCard(
-            title = "7. Third-Party Service Providers",
+            title = "6. Third-Party Service Providers",
             icon = Icons.Outlined.Hub
         ) {
             Text(
@@ -277,14 +245,14 @@ fun PrivacyPolicyScreen(viewModel: HaazriViewModel) {
                 lineHeight = 18.sp
             )
             Spacer(modifier = Modifier.height(8.dp))
-            Text("• Google Play Services (Core Android functionality)\n• Firebase Authentication (Secure OAuth login)\n• Google Maps Platform (Geofence coordinates visualization)", fontSize = 12.sp, color = Color(0xFF475569), lineHeight = 18.sp)
+            Text("• Google Play Services (Core Android functionality)\n• Firebase Authentication (Secure OAuth login)", fontSize = 12.sp, color = Color(0xFF475569), lineHeight = 18.sp)
         }
 
         Spacer(modifier = Modifier.height(12.dp))
 
         // Section 8: Children's Privacy
         PolicyCard(
-            title = "8. Children's Privacy",
+            title = "7. Children's Privacy",
             icon = Icons.Outlined.ChildCare
         ) {
             Text(
@@ -299,7 +267,7 @@ fun PrivacyPolicyScreen(viewModel: HaazriViewModel) {
 
         // Section 9: Contact Information
         PolicyCard(
-            title = "9. Contact Us",
+            title = "8. Contact Us",
             icon = Icons.Outlined.Mail
         ) {
             Text(

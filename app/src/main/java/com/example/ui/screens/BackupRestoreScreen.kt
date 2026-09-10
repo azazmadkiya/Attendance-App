@@ -32,20 +32,30 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.HaazriPrimary
 import com.example.viewmodel.HaazriViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+data class LocalBackupItem(
+    val file: File,
+    val name: String,
+    val lastModified: Long,
+    val sizeBytes: Long
+)
+
 @Composable
 fun BackupRestoreScreen(viewModel: HaazriViewModel) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+
     val workers by viewModel.workers.collectAsState()
     val attendanceRecords by viewModel.allAttendanceRecords.collectAsState()
     val cashbookEntries by viewModel.cashbookEntries.collectAsState()
 
-    val isCloudSyncing by viewModel.isCloudSyncing.collectAsState()
-    val lastCloudSyncTime by viewModel.lastCloudSyncTime.collectAsState()
     val loggedInCompany by viewModel.loggedInCompanyName.collectAsState()
     val loggedInPhone by viewModel.loggedInPhone.collectAsState()
 
@@ -54,56 +64,215 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
     var jsonPasteInput by remember { mutableStateOf("") }
     var restoreStatusMessage by remember { mutableStateOf<String?>(null) }
     var isSuccessStatus by remember { mutableStateOf(true) }
+    var isOperating by remember { mutableStateOf(false) }
 
-    // System File Manager Launcher to save backup file into user-chosen folder
+    // Confirm restore dialog state for saved local backups
+    var pendingRestoreFile by remember { mutableStateOf<File?>(null) }
+
+    // Local backups stored on device
+    var localBackups by remember { mutableStateOf<List<LocalBackupItem>>(emptyList()) }
+
+    var autoBackupEnabled by remember { mutableStateOf(com.example.util.AutoBackupScheduler.isAutoBackupEnabled(context)) }
+    var lastBackupTime by remember { mutableStateOf(com.example.util.AutoBackupScheduler.getLastBackupTime(context)) }
+    var lastBackupSummary by remember { mutableStateOf(com.example.util.AutoBackupScheduler.getLastBackupSummary(context)) }
+    var lastBackupStatus by remember { mutableStateOf(com.example.util.AutoBackupScheduler.getLastBackupStatus(context)) }
+    var lastBackupFileName by remember { mutableStateOf(com.example.util.AutoBackupScheduler.getLastBackupFileName(context)) }
+
+    fun refreshAutoBackupInfo() {
+        lastBackupTime = com.example.util.AutoBackupScheduler.getLastBackupTime(context)
+        lastBackupSummary = com.example.util.AutoBackupScheduler.getLastBackupSummary(context)
+        lastBackupStatus = com.example.util.AutoBackupScheduler.getLastBackupStatus(context)
+        lastBackupFileName = com.example.util.AutoBackupScheduler.getLastBackupFileName(context)
+    }
+
+    fun refreshLocalBackups() {
+        val backupsDir = File(context.filesDir, "backups")
+        if (backupsDir.exists()) {
+            val list = backupsDir.listFiles { f -> f.extension.equals("json", ignoreCase = true) }
+                ?.map { LocalBackupItem(it, it.name, it.lastModified(), it.length()) }
+                ?.sortedByDescending { it.lastModified }
+                ?: emptyList()
+            localBackups = list
+        } else {
+            localBackups = emptyList()
+        }
+        refreshAutoBackupInfo()
+    }
+
+    LaunchedEffect(Unit) {
+        refreshLocalBackups()
+    }
+
+    // System File Manager Launcher to save backup into user-chosen folder
     val createDocumentLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
     ) { uri: Uri? ->
         if (uri != null) {
-            try {
-                val jsonString = viewModel.exportBackupJson()
-                context.contentResolver.openOutputStream(uri)?.use { os ->
-                    os.write(jsonString.toByteArray(Charsets.UTF_8))
+            isOperating = true
+            coroutineScope.launch(Dispatchers.IO) {
+                try {
+                    val jsonString = viewModel.getFullBackupJson()
+                    
+                    // 1. Save locally first so it appears in "Saved Backups on Device"
+                    val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                    val fileName = "Haazri_Backup_$timeStamp.json"
+                    val backupsDir = File(context.filesDir, "backups").apply { if (!exists()) mkdirs() }
+                    val localFile = File(backupsDir, fileName)
+                    localFile.writeText(jsonString, Charsets.UTF_8)
+                    
+                    val cacheFile = File(context.cacheDir, fileName)
+                    cacheFile.writeText(jsonString, Charsets.UTF_8)
+                    
+                    // 2. Write to the user-chosen location safely using a stream copy
+                    context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                        localFile.inputStream().use { inputStream ->
+                            inputStream.copyTo(outputStream)
+                        }
+                        outputStream.flush()
+                    }
+                    
+                    withContext(Dispatchers.Main) {
+                        isOperating = false
+                        isSuccessStatus = true
+                        restoreStatusMessage = "Backup file saved successfully to selected location!"
+                        Toast.makeText(context, "Backup file saved successfully!", Toast.LENGTH_LONG).show()
+                        refreshLocalBackups()
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        isOperating = false
+                        isSuccessStatus = false
+                        restoreStatusMessage = "Failed to save file: ${e.localizedMessage}"
+                        Toast.makeText(context, "Error saving file: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                    }
                 }
-                isSuccessStatus = true
-                restoreStatusMessage = "Backup file saved successfully to File Manager!"
-                Toast.makeText(context, "Backup file saved in File Manager!", Toast.LENGTH_LONG).show()
-            } catch (e: Exception) {
-                isSuccessStatus = false
-                restoreStatusMessage = "Failed to save file: ${e.localizedMessage}"
-                Toast.makeText(context, "Error saving file: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
             }
         }
     }
 
-    // File picker launcher for JSON import
-    val filePickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
+    // SAF Document Picker launcher for JSON import
+    val openDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
-            try {
-                val inputStream = context.contentResolver.openInputStream(uri)
-                val jsonString = inputStream?.bufferedReader()?.use { it.readText() } ?: ""
-                if (jsonString.isNotBlank()) {
-                    viewModel.restoreBackupData(
-                        jsonString = jsonString,
-                        clearExisting = isOverwriteMode
-                    ) { success, msg ->
-                        isSuccessStatus = success
-                        restoreStatusMessage = msg
-                        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            isOperating = true
+            restoreStatusMessage = "Reading and verifying backup file..."
+            coroutineScope.launch(Dispatchers.IO) {
+                try {
+                    val jsonString = context.contentResolver.openInputStream(uri)?.use { stream ->
+                        stream.bufferedReader(Charsets.UTF_8).readText()
+                    } ?: ""
+
+                    if (jsonString.isNotBlank()) {
+                        viewModel.restoreBackupData(
+                            jsonString = jsonString,
+                            clearExisting = isOverwriteMode
+                        ) { success, msg ->
+                            isOperating = false
+                            isSuccessStatus = success
+                            restoreStatusMessage = msg
+                            Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            refreshLocalBackups()
+                        }
+                    } else {
+                        withContext(Dispatchers.Main) {
+                            isOperating = false
+                            isSuccessStatus = false
+                            restoreStatusMessage = "Selected file is empty."
+                            Toast.makeText(context, "Selected file is empty", Toast.LENGTH_SHORT).show()
+                        }
                     }
-                } else {
-                    Toast.makeText(context, "Selected file is empty", Toast.LENGTH_SHORT).show()
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        isOperating = false
+                        isSuccessStatus = false
+                        restoreStatusMessage = "Failed to read backup file: ${e.localizedMessage}"
+                        Toast.makeText(context, "Error opening file: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                    }
                 }
-            } catch (e: Exception) {
-                isSuccessStatus = false
-                restoreStatusMessage = "Failed to read backup file: ${e.localizedMessage}"
-                Toast.makeText(context, "Error opening file: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
             }
         }
     }
 
+    // Confirmation dialog when restoring a saved local backup
+    if (pendingRestoreFile != null) {
+        val targetFile = pendingRestoreFile!!
+        AlertDialog(
+            onDismissRequest = { pendingRestoreFile = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Outlined.Restore,
+                        contentDescription = null,
+                        tint = HaazriPrimary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Restore Backup?", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column {
+                    Text(
+                        "File: ${targetFile.name}",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF1E293B)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        if (isOverwriteMode)
+                            "Mode: OVERWRITE (Current database will be replaced with data from this backup)."
+                        else
+                            "Mode: MERGE (New workers and records will be added without overwriting existing entries).",
+                        fontSize = 12.sp,
+                        color = if (isOverwriteMode) Color(0xFFDC2626) else Color(0xFF16A34A),
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val fileToRead = targetFile
+                        pendingRestoreFile = null
+                        isOperating = true
+                        coroutineScope.launch(Dispatchers.IO) {
+                            try {
+                                val json = fileToRead.readText(Charsets.UTF_8)
+                                viewModel.restoreBackupData(
+                                    jsonString = json,
+                                    clearExisting = isOverwriteMode
+                                ) { success, msg ->
+                                    isOperating = false
+                                    isSuccessStatus = success
+                                    restoreStatusMessage = msg
+                                    Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    isOperating = false
+                                    isSuccessStatus = false
+                                    restoreStatusMessage = "Restore failed: ${e.localizedMessage}"
+                                    Toast.makeText(context, "Restore failed: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = HaazriPrimary)
+                ) {
+                    Text("Confirm Restore", fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { pendingRestoreFile = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    // Dialog for pasting raw JSON text
     if (showPasteJsonDialog) {
         AlertDialog(
             onDismissRequest = { showPasteJsonDialog = false },
@@ -122,7 +291,7 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
             text = {
                 Column {
                     Text(
-                        "Paste your exported JSON backup code below to restore your data.",
+                        "Paste your exported JSON backup text below to restore your data.",
                         fontSize = 12.sp,
                         color = Color(0xFF64748B)
                     )
@@ -146,16 +315,19 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
                             Toast.makeText(context, "Please paste JSON backup code first", Toast.LENGTH_SHORT).show()
                             return@Button
                         }
+                        isOperating = true
                         viewModel.restoreBackupData(
                             jsonString = jsonPasteInput,
                             clearExisting = isOverwriteMode
                         ) { success, msg ->
+                            isOperating = false
                             isSuccessStatus = success
                             restoreStatusMessage = msg
                             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                             if (success) {
                                 showPasteJsonDialog = false
                                 jsonPasteInput = ""
+                                refreshLocalBackups()
                             }
                         }
                     },
@@ -175,169 +347,149 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF7F5EE))
+            .background(Color(0xFFF8FAFC))
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        // Status Banner Card
+        // App Database Overview Card
         Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFFDBEAFE)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.CloudSync,
-                            contentDescription = null,
-                            tint = Color(0xFF1E3A8A),
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(14.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
                         Text(
-                            text = "Firebase Cloud & Local Data",
+                            text = loggedInCompany.ifBlank { "Offline Local Database" },
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF1E293B)
                         )
-                        Text(
-                            text = "Connected Account: $loggedInCompany ($loggedInPhone)",
-                            fontSize = 12.sp,
-                            color = Color(0xFF64748B)
+                        if (loggedInPhone.isNotBlank()) {
+                            Text(
+                                text = "Admin: $loggedInPhone",
+                                fontSize = 12.sp,
+                                color = Color(0xFF64748B)
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(Color(0xFFEFF6FF))
+                            .padding(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Storage,
+                            contentDescription = "Database",
+                            tint = HaazriPrimary,
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.height(14.dp))
-                HorizontalDivider(color = Color(0xFFF1F5F9))
-                Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(16.dp))
 
-                // Stats summary
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    BackupStatChip("Workers", "${workers.size}", Color(0xFFE0E7FF), Color(0xFF1E3A8A))
-                    BackupStatChip("Attendance", "${attendanceRecords.size}", Color(0xFFDCFCE7), Color(0xFF15803D))
-                    BackupStatChip("Ledger", "${cashbookEntries.size}", Color(0xFFFEF3C7), Color(0xFFB45309))
+                    BackupStatChip(
+                        title = "Staff",
+                        count = "${workers.size}",
+                        bgColor = Color(0xFFEFF6FF),
+                        textColor = Color(0xFF1D4ED8)
+                    )
+                    BackupStatChip(
+                        title = "Attendance",
+                        count = "${attendanceRecords.size}",
+                        bgColor = Color(0xFFF0FDF4),
+                        textColor = Color(0xFF15803D)
+                    )
+                    BackupStatChip(
+                        title = "Cashbook",
+                        count = "${cashbookEntries.size}",
+                        bgColor = Color(0xFFFEF3C7),
+                        textColor = Color(0xFFB45309)
+                    )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // FIREBASE CLOUD REAL-TIME BACKUP CARD
+        // 100% Private On-Device Data Banner
         Card(
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF)),
-            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF93C5FD)),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF0FDF4)),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBBF7D0)),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.CloudDone,
-                        contentDescription = null,
-                        tint = Color(0xFF2563EB),
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
+            Row(
+                modifier = Modifier.padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Shield,
+                    contentDescription = null,
+                    tint = Color(0xFF16A34A),
+                    modifier = Modifier.size(26.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
                     Text(
-                        text = "Firebase Cloud Live Sync",
-                        fontSize = 15.sp,
+                        text = "100% Private On-Device Data",
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
+                        color = Color(0xFF166534)
+                    )
+                    Text(
+                        text = "All staff, attendance logs, and ledger entries are stored securely on this phone. Use the offline export tools below to create and restore your backups anytime.",
+                        fontSize = 11.sp,
+                        color = Color(0xFF15803D),
+                        lineHeight = 15.sp
+                    )
+                }
+            }
+        }
+
+        // Operation in progress spinner
+        if (isOperating) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = HaazriPrimary
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = "Processing backup data... Please wait.",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
                         color = Color(0xFF1E40AF)
                     )
                 }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                val syncTimeFormatted = if (lastCloudSyncTime > 0) {
-                    SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(lastCloudSyncTime))
-                } else {
-                    "Auto-Sync Active"
-                }
-
-                Text(
-                    text = "• Real-Time Cloud Firestore: All workers, attendance, & money entries sync automatically.\n" +
-                           "• Account Profile: Stored on Firebase under $loggedInPhone.\n" +
-                           "• Last Full Cloud Backup: $syncTimeFormatted",
-                    fontSize = 12.sp,
-                    color = Color(0xFF1E3A8A),
-                    lineHeight = 18.sp
-                )
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Sync Now to Cloud
-                    Button(
-                        onClick = {
-                            viewModel.syncAllToCloudNow { success, msg ->
-                                isSuccessStatus = success
-                                restoreStatusMessage = msg
-                                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp)
-                            .testTag("btn_sync_cloud_now"),
-                        enabled = !isCloudSyncing
-                    ) {
-                        if (isCloudSyncing) {
-                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Syncing...", fontSize = 12.sp, color = Color.White)
-                        } else {
-                            Icon(Icons.Outlined.CloudUpload, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Sync to Cloud", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.White)
-                        }
-                    }
-
-                    // Restore from Cloud
-                    OutlinedButton(
-                        onClick = {
-                            viewModel.restoreFromCloudNow(clearExisting = isOverwriteMode) { success, msg ->
-                                isSuccessStatus = success
-                                restoreStatusMessage = msg
-                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                            }
-                        },
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp)
-                            .testTag("btn_restore_cloud_now"),
-                        enabled = !isCloudSyncing
-                    ) {
-                        Icon(Icons.Outlined.CloudDownload, contentDescription = null, tint = Color(0xFF1E40AF), modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Restore Cloud", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF1E40AF))
-                    }
-                }
             }
         }
 
-        if (restoreStatusMessage != null) {
-            Spacer(modifier = Modifier.height(14.dp))
+        // Status Message Banner
+        if (restoreStatusMessage != null && !isOperating) {
+            Spacer(modifier = Modifier.height(12.dp))
             Card(
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(
@@ -373,11 +525,167 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
-        // SECTION 1: EXPORT LOCAL FILE BACKUP
+        // SECTION: AUTOMATIC 24-HOUR WORKMANAGER BACKUP
         Text(
-            text = "Offline File Backup & Export",
+            text = "Automatic 24-Hour Backup (WorkManager)",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF64748B),
+            modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+        )
+
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .background(Color(0xFFEFF6FF), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Schedule,
+                            contentDescription = null,
+                            tint = Color(0xFF1E3A8A),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Daily Auto-Backup",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = Color(0xFF1E293B)
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Runs silently every 24 hours in background",
+                            fontSize = 12.sp,
+                            color = Color(0xFF64748B)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Switch(
+                        checked = autoBackupEnabled,
+                        onCheckedChange = { enabled ->
+                            autoBackupEnabled = enabled
+                            com.example.util.AutoBackupScheduler.setAutoBackupEnabled(context, enabled)
+                            Toast.makeText(
+                                context,
+                                if (enabled) "Automatic 24-hour backup enabled" else "Automatic backup disabled",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.White,
+                            checkedTrackColor = Color(0xFF253B80)
+                        ),
+                        modifier = Modifier.testTag("auto_backup_switch")
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+                HorizontalDivider(color = Color(0xFFF1F5F9))
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Last backup details & Status Badge
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.CheckCircle,
+                        contentDescription = null,
+                        tint = if (lastBackupTime > 0) Color(0xFF16A34A) else Color(0xFF94A3B8),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = if (lastBackupTime > 0) {
+                                val dateStr = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(lastBackupTime))
+                                "Last Run: $dateStr"
+                            } else {
+                                "Last Run: Pending first 24h cycle"
+                            },
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF1E293B)
+                        )
+                        if (lastBackupSummary.isNotBlank()) {
+                            Text(
+                                text = lastBackupSummary,
+                                fontSize = 11.sp,
+                                color = Color(0xFF64748B)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Surface(
+                        color = if (autoBackupEnabled) Color(0xFFDCFCE7) else Color(0xFFF1F5F9),
+                        shape = RoundedCornerShape(100.dp)
+                    ) {
+                        Text(
+                            text = if (autoBackupEnabled) "Active (24h)" else "Disabled",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            color = if (autoBackupEnabled) Color(0xFF15803D) else Color(0xFF64748B),
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Immediate trigger button
+                OutlinedButton(
+                    onClick = {
+                        com.example.util.AutoBackupScheduler.triggerImmediateBackup(context)
+                        Toast.makeText(context, "WorkManager backup job enqueued! Saving in background...", Toast.LENGTH_LONG).show()
+                        coroutineScope.launch {
+                            kotlinx.coroutines.delay(1200)
+                            refreshAutoBackupInfo()
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(42.dp)
+                        .testTag("btn_trigger_workmanager_backup"),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Sync,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = Color(0xFF1E3A8A)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Run WorkManager Backup Now",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF1E3A8A)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(18.dp))
+
+        // SECTION 1: CREATE OFFLINE BACKUP
+        Text(
+            text = "Create Offline Backup",
             fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
             color = Color(0xFF64748B),
@@ -391,44 +699,86 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "Export your complete app database into a portable JSON file for offline storage or transferring between devices.",
+                    text = "Export your entire database directly from SQLite into a portable JSON backup file.",
                     fontSize = 12.sp,
                     color = Color(0xFF475569)
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Primary Action: Share Backup File
+                // Action 1: Save Backup (Choose Path)
                 Button(
                     onClick = {
-                        val jsonString = viewModel.exportBackupJson()
                         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-                        val fileName = "Attendance_Backup_$timeStamp.json"
+                        createDocumentLauncher.launch("Haazri_Backup_$timeStamp.json")
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("btn_save_backup_manual")
+                ) {
+                    Icon(Icons.Outlined.SaveAlt, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Save Backup to Device (Choose Folder)", fontWeight = FontWeight.Bold, color = Color.White)
+                }
 
-                        try {
-                            val cacheFile = File(context.cacheDir, fileName)
-                            cacheFile.writeText(jsonString)
+                Spacer(modifier = Modifier.height(10.dp))
 
-                            val fileUri: Uri = androidx.core.content.FileProvider.getUriForFile(
-                                context,
-                                "${context.packageName}.fileprovider",
-                                cacheFile
-                            )
+                // Action 2: Share Backup File via WhatsApp / Email / Drive
+                Button(
+                    onClick = {
+                        isOperating = true
+                        restoreStatusMessage = "Preparing backup to share..."
+                        coroutineScope.launch(Dispatchers.IO) {
+                            try {
+                                val jsonString = viewModel.getFullBackupJson()
+                                val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                                val fileName = "Haazri_Backup_$timeStamp.json"
 
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "application/json"
-                                putExtra(Intent.EXTRA_STREAM, fileUri)
-                                putExtra(Intent.EXTRA_SUBJECT, "Attendance App Backup ($timeStamp)")
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                // Save file
+                                val backupsDir = File(context.filesDir, "backups").apply { if (!exists()) mkdirs() }
+                                val localFile = File(backupsDir, fileName)
+                                localFile.writeText(jsonString, Charsets.UTF_8)
+
+                                val cacheFile = File(context.cacheDir, fileName)
+                                cacheFile.writeText(jsonString, Charsets.UTF_8)
+
+                                withContext(Dispatchers.Main) {
+                                    isOperating = false
+                                    refreshLocalBackups()
+                                    try {
+                                        val fileUri: Uri = androidx.core.content.FileProvider.getUriForFile(
+                                            context,
+                                            "${context.packageName}.fileprovider",
+                                            cacheFile
+                                        )
+
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "application/json"
+                                            putExtra(Intent.EXTRA_STREAM, fileUri)
+                                            putExtra(Intent.EXTRA_SUBJECT, "Attendance App Backup ($timeStamp)")
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Share Backup File"))
+                                    } catch (e: Exception) {
+                                        val textShareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, jsonString)
+                                            putExtra(Intent.EXTRA_SUBJECT, "Attendance App Backup ($timeStamp)")
+                                        }
+                                        context.startActivity(Intent.createChooser(textShareIntent, "Share Backup Data"))
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    isOperating = false
+                                    isSuccessStatus = false
+                                    restoreStatusMessage = "Failed to export: ${e.localizedMessage}"
+                                    Toast.makeText(context, "Export error: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                                }
                             }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share Backup File"))
-                        } catch (e: Exception) {
-                            val textShareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, jsonString)
-                                putExtra(Intent.EXTRA_SUBJECT, "Attendance App Backup ($timeStamp)")
-                            }
-                            context.startActivity(Intent.createChooser(textShareIntent, "Share Backup Data"))
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = HaazriPrimary),
@@ -440,76 +790,151 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
                 ) {
                     Icon(Icons.Outlined.Share, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Share Backup File / Send via WhatsApp", fontWeight = FontWeight.Bold, color = Color.White)
+                    Text("Share Backup File (WhatsApp / Drive)", fontWeight = FontWeight.Bold, color = Color.White)
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Copy to Clipboard
-                    OutlinedButton(
-                        onClick = {
-                            val jsonString = viewModel.exportBackupJson()
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val clip = ClipData.newPlainText("Attendance Backup JSON", jsonString)
-                            clipboard.setPrimaryClip(clip)
-                            Toast.makeText(context, "Backup JSON code copied to clipboard!", Toast.LENGTH_SHORT).show()
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("btn_copy_backup")
-                    ) {
-                        Icon(Icons.Outlined.ContentCopy, contentDescription = null, tint = Color(0xFF1E3A8A), modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Copy Code", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF1E3A8A))
-                    }
-
-                    // Save Local Snapshot File via File Manager & Downloads
-                    OutlinedButton(
-                        onClick = {
-                            val jsonString = viewModel.exportBackupJson()
-                            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-                            val fileName = "Haazri_Backup_$timeStamp.json"
-                            
-                            try {
-                                val savedToDownloads = saveBackupToDownloadsMediaStore(context, fileName, jsonString)
-                                val internalFile = File(context.filesDir, fileName)
-                                internalFile.writeText(jsonString)
-
-                                if (savedToDownloads) {
-                                    Toast.makeText(
-                                        context,
-                                        "Backup saved in Downloads!",
-                                        Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                                createDocumentLauncher.launch(fileName)
-                            } catch (e: Exception) {
-                                createDocumentLauncher.launch(fileName)
+                // Copy Code
+                OutlinedButton(
+                    onClick = {
+                        coroutineScope.launch(Dispatchers.IO) {
+                            val jsonString = viewModel.getFullBackupJson()
+                            withContext(Dispatchers.Main) {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                val clip = ClipData.newPlainText("Attendance Backup JSON", jsonString)
+                                clipboard.setPrimaryClip(clip)
+                                Toast.makeText(context, "Backup JSON code copied to clipboard!", Toast.LENGTH_SHORT).show()
                             }
-                        },
+                        }
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("btn_copy_backup")
+                ) {
+                    Icon(Icons.Outlined.ContentCopy, contentDescription = null, tint = Color(0xFF1E3A8A), modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Copy Raw Backup Code", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF1E3A8A))
+                }
+            }
+        }
+
+        // SECTION 2: SAVED LOCAL BACKUPS ON THIS DEVICE
+        if (localBackups.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(18.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Saved Backups on Device (${localBackups.size})",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF64748B),
+                    modifier = Modifier.padding(start = 4.dp)
+                )
+                TextButton(onClick = { refreshLocalBackups() }) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh", modifier = Modifier.size(14.dp), tint = HaazriPrimary)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Refresh", fontSize = 12.sp, color = HaazriPrimary)
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                localBackups.take(5).forEach { backupItem ->
+                    val dateFormatted = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(backupItem.lastModified))
+                    val sizeKb = String.format(Locale.getDefault(), "%.1f KB", backupItem.sizeBytes / 1024.0)
+
+                    Card(
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("btn_save_local_backup")
+                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Icon(Icons.Outlined.SaveAlt, contentDescription = null, tint = Color(0xFF16A34A), modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Save to File Manager", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color(0xFF16A34A))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFEFF6FF))
+                                    .padding(8.dp)
+                            ) {
+                                Icon(Icons.Outlined.InsertDriveFile, contentDescription = null, tint = HaazriPrimary, modifier = Modifier.size(20.dp))
+                            }
+
+                            Spacer(modifier = Modifier.width(10.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = backupItem.name,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF1E293B),
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = "$dateFormatted • $sizeKb",
+                                    fontSize = 10.sp,
+                                    color = Color(0xFF64748B)
+                                )
+                            }
+
+                            // 1-Tap Restore Button
+                            Button(
+                                onClick = {
+                                    pendingRestoreFile = backupItem.file
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Text("Restore", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+
+                            Spacer(modifier = Modifier.width(6.dp))
+
+                            // Share single backup
+                            IconButton(
+                                onClick = {
+                                    try {
+                                        val fileUri: Uri = androidx.core.content.FileProvider.getUriForFile(
+                                            context,
+                                            "${context.packageName}.fileprovider",
+                                            backupItem.file
+                                        )
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "application/json"
+                                            putExtra(Intent.EXTRA_STREAM, fileUri)
+                                            putExtra(Intent.EXTRA_SUBJECT, backupItem.name)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Share Backup"))
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Error sharing: ${e.localizedMessage}", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Outlined.Share, contentDescription = "Share", tint = Color(0xFF64748B), modifier = Modifier.size(16.dp))
+                            }
+                        }
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
-        // SECTION 2: RESTORE OFFLINE BACKUP
+        // SECTION 3: RESTORE BACKUP FROM FILE OR CODE
         Text(
-            text = "Restore Local File Backup",
+            text = "Restore Offline Backup",
             fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
             color = Color(0xFF64748B),
@@ -523,7 +948,7 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "Select a JSON backup file or paste your backup code to restore all workers, attendance logs, and financial records.",
+                    text = "Select any JSON backup file from your phone storage, Google Drive, or Downloads to restore your staff and records.",
                     fontSize = 12.sp,
                     color = Color(0xFF475569)
                 )
@@ -549,7 +974,7 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
                                 color = if (isOverwriteMode) Color(0xFFDC2626) else Color(0xFF15803D)
                             )
                             Text(
-                                text = if (isOverwriteMode) "Clears current database before restoring backup" else "Appends backup data to existing database",
+                                text = if (isOverwriteMode) "Clears current database before restoring backup" else "Appends backup data to existing database safely",
                                 fontSize = 11.sp,
                                 color = Color(0xFF64748B)
                             )
@@ -571,10 +996,17 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Button: Select JSON File
+                // Button: Select & Import JSON File
                 Button(
                     onClick = {
-                        filePickerLauncher.launch("*/*")
+                        openDocumentLauncher.launch(
+                            arrayOf(
+                                "application/json",
+                                "text/plain",
+                                "application/octet-stream",
+                                "*/*"
+                            )
+                        )
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
                     shape = RoundedCornerShape(12.dp),
@@ -646,7 +1078,7 @@ private fun saveBackupToDownloadsMediaStore(context: Context, fileName: String, 
             val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
             if (downloadsDir != null && (downloadsDir.exists() || downloadsDir.mkdirs())) {
                 val file = File(downloadsDir, fileName)
-                file.writeText(jsonContent)
+                file.writeText(jsonContent, Charsets.UTF_8)
                 android.media.MediaScannerConnection.scanFile(
                     context,
                     arrayOf(file.absolutePath),

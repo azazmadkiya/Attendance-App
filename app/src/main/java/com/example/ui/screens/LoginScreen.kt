@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -32,7 +33,9 @@ import androidx.compose.ui.unit.sp
 import com.example.ui.theme.HaazriBgCream
 import com.example.ui.theme.HaazriHeaderBlue
 import com.example.ui.theme.HaazriPrimary
+import com.example.util.AuthResult
 import com.example.viewmodel.HaazriViewModel
+import kotlinx.coroutines.launch
 
 @Composable
 fun LoginScreen(
@@ -40,6 +43,7 @@ fun LoginScreen(
     onLoginSuccess: () -> Unit
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     // Mode: Login vs Sign-Up
     var isRegisterMode by remember { mutableStateOf(false) }
@@ -53,6 +57,7 @@ fun LoginScreen(
 
     var passwordVisible by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var isLoading by remember { mutableStateOf(false) }
 
     val scrollState = rememberScrollState()
 
@@ -280,16 +285,25 @@ fun LoginScreen(
                         }
                     }
 
-                    // Mobile Number
+                    // Mobile Number or Email
                     OutlinedTextField(
                         value = phoneInput,
-                        onValueChange = { phoneInput = it.filter { char -> char.isDigit() }.take(10) },
-                        label = { Text("Mobile Number") },
-                        placeholder = { Text("Enter 10 digit mobile number") },
-                        leadingIcon = {
-                            Icon(Icons.Default.Phone, contentDescription = null, tint = Color(0xFF64748B))
+                        onValueChange = { 
+                            // In register mode only allow 10 digits; in login mode allow mobile or email
+                            phoneInput = if (isRegisterMode) it.filter { char -> char.isDigit() }.take(10) else it
                         },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        label = { Text(if (isRegisterMode) "Mobile Number" else "Mobile Number or Email") },
+                        placeholder = { Text(if (isRegisterMode) "Enter 10 digit mobile number" else "Enter mobile number or email") },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = if (!isRegisterMode && phoneInput.contains("@")) Icons.Default.Email else Icons.Default.Phone,
+                                contentDescription = null,
+                                tint = Color(0xFF64748B)
+                            )
+                        },
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = if (isRegisterMode) KeyboardType.Number else KeyboardType.Email
+                        ),
                         singleLine = true,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -304,7 +318,7 @@ fun LoginScreen(
                         value = passwordInput,
                         onValueChange = { passwordInput = it },
                         label = { Text(if (isRegisterMode) "Set Password" else "Password") },
-                        placeholder = { Text(if (isRegisterMode) "Enter password (min 4 characters)" else "Enter your password") },
+                        placeholder = { Text(if (isRegisterMode) "Enter password (min 6 characters)" else "Enter your password") },
                         leadingIcon = {
                             Icon(Icons.Default.Lock, contentDescription = null, tint = Color(0xFF64748B))
                         },
@@ -326,12 +340,140 @@ fun LoginScreen(
                         shape = RoundedCornerShape(12.dp)
                     )
 
+                    if (isRegisterMode && passwordInput.isNotEmpty()) {
+                        val passwordStrength = remember(passwordInput) {
+                            var score = 0
+                            if (passwordInput.length >= 8) score++
+                            if (passwordInput.any { it.isDigit() }) score++
+                            if (passwordInput.any { it.isUpperCase() }) score++
+                            if (passwordInput.any { !it.isLetterOrDigit() }) score++
+                            score
+                        }
+
+                        val strengthColor = when (passwordStrength) {
+                            0, 1 -> Color(0xFFEF4444)
+                            2 -> Color(0xFFF59E0B)
+                            3 -> Color(0xFFEAB308)
+                            4 -> Color(0xFF10B981)
+                            else -> Color.Gray
+                        }
+
+                        val strengthText = when (passwordStrength) {
+                            0, 1 -> "Weak"
+                            2 -> "Fair"
+                            3 -> "Good"
+                            4 -> "Strong"
+                            else -> ""
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            repeat(4) { index ->
+                                val color = if (index < passwordStrength || (passwordStrength == 0 && index == 0)) strengthColor else Color(0xFFE2E8F0)
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(4.dp)
+                                        .background(color, RoundedCornerShape(2.dp))
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Password strength: $strengthText",
+                            fontSize = 12.sp,
+                            color = strengthColor,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    if (!isRegisterMode) {
+                        var showForgotDialog by remember { mutableStateOf(false) }
+                        var forgotEmailInput by remember { mutableStateOf("") }
+                        var forgotLoading by remember { mutableStateOf(false) }
+                        var forgotMessage by remember { mutableStateOf<String?>(null) }
+
+                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                            TextButton(
+                                onClick = { showForgotDialog = true },
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text("Forgot Password?", color = HaazriPrimary, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
+
+                        if (showForgotDialog) {
+                            AlertDialog(
+                                onDismissRequest = {
+                                    if (!forgotLoading) showForgotDialog = false
+                                },
+                                title = { Text("Reset Password", fontWeight = FontWeight.Bold) },
+                                text = {
+                                    Column {
+                                        Text("Enter your registered email address to receive a password reset link.", color = Color.Gray, fontSize = 14.sp)
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        OutlinedTextField(
+                                            value = forgotEmailInput,
+                                            onValueChange = { forgotEmailInput = it },
+                                            label = { Text("Email Address") },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                        if (forgotMessage != null) {
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(forgotMessage!!, color = if (forgotMessage!!.contains("Check your email", true)) Color(0xFF10B981) else MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                                        }
+                                    }
+                                },
+                                confirmButton = {
+                                    Button(
+                                        onClick = {
+                                            if (forgotEmailInput.isBlank() || !forgotEmailInput.contains("@")) {
+                                                forgotMessage = "Please enter a valid email address."
+                                                return@Button
+                                            }
+                                            coroutineScope.launch {
+                                                forgotLoading = true
+                                                forgotMessage = null
+                                                val res = viewModel.sendPasswordResetEmail(forgotEmailInput.trim())
+                                                forgotLoading = false
+                                                if (res.isSuccess) {
+                                                    forgotMessage = "Check your email for the reset link."
+                                                } else {
+                                                    forgotMessage = res.exceptionOrNull()?.message ?: "Failed to send reset email."
+                                                }
+                                            }
+                                        },
+                                        enabled = !forgotLoading
+                                    ) {
+                                        if (forgotLoading) {
+                                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                                        } else {
+                                            Text("Send Link")
+                                        }
+                                    }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { showForgotDialog = false }, enabled = !forgotLoading) {
+                                        Text("Cancel")
+                                    }
+                                }
+                            )
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(20.dp))
 
                     // Primary Action Button (Sign Up / Login)
                     Button(
                         onClick = {
+                            if (isLoading) return@Button
                             errorMessage = null
+
                             if (isRegisterMode) {
                                 if (companyNameInput.isBlank()) {
                                     errorMessage = "Please enter company / business name"
@@ -341,44 +483,72 @@ fun LoginScreen(
                                     errorMessage = "Please enter your name"
                                     return@Button
                                 }
-                                if (phoneInput.length < 10) {
+                                val cleanPhone = phoneInput.filter { it.isDigit() }
+                                if (cleanPhone.length < 10) {
                                     errorMessage = "Please enter a valid 10-digit mobile number"
                                     return@Button
                                 }
-                                if (passwordInput.length < 4) {
-                                    errorMessage = "Please set a password (at least 4 characters)"
+                                if (passwordInput.length < 8 || !passwordInput.any { it.isDigit() } || !passwordInput.any { it.isUpperCase() }) {
+                                    errorMessage = "Password must be at least 8 characters, with 1 uppercase letter and 1 number"
                                     return@Button
                                 }
                                 if (emailInput.isNotBlank() && !emailInput.contains("@")) {
                                     errorMessage = "Please enter a valid email address"
                                     return@Button
                                 }
-                                viewModel.registerUser(
-                                    company = companyNameInput,
-                                    name = managerNameInput,
-                                    phone = phoneInput,
-                                    passwordOrPin = passwordInput,
-                                    email = emailInput.trim()
-                                )
-                                Toast.makeText(context, "Welcome to Attendance App, $managerNameInput!", Toast.LENGTH_SHORT).show()
-                                onLoginSuccess()
+
+                                coroutineScope.launch {
+                                    isLoading = true
+                                    val result = viewModel.registerUser(
+                                        company = companyNameInput,
+                                        name = managerNameInput,
+                                        phone = cleanPhone,
+                                        passwordOrPin = passwordInput,
+                                        email = emailInput.trim()
+                                    )
+                                    isLoading = false
+                                    when (result) {
+                                        is AuthResult.Success -> {
+                                            Toast.makeText(context, "Account created & synced to Cloud!", Toast.LENGTH_SHORT).show()
+                                            onLoginSuccess()
+                                        }
+                                        is AuthResult.Error -> {
+                                            errorMessage = result.message
+                                        }
+                                        is AuthResult.Cancelled -> {}
+                                    }
+                                }
                             } else {
-                                if (phoneInput.length < 10) {
-                                    errorMessage = "Please enter 10-digit mobile number"
+                                if (phoneInput.isBlank()) {
+                                    errorMessage = "Please enter your 10-digit mobile number or email"
                                     return@Button
                                 }
                                 if (passwordInput.isBlank()) {
                                     errorMessage = "Please enter your password"
                                     return@Button
                                 }
-                                val success = viewModel.loginUser(phone = phoneInput, passwordOrPin = passwordInput)
-                                if (success) {
-                                    onLoginSuccess()
-                                } else {
-                                    errorMessage = "Incorrect password or unregistered mobile number"
+
+                                coroutineScope.launch {
+                                    isLoading = true
+                                    val result = viewModel.loginUser(
+                                        phoneOrEmail = phoneInput.trim(),
+                                        passwordOrPin = passwordInput
+                                    )
+                                    isLoading = false
+                                    when (result) {
+                                        is AuthResult.Success -> {
+                                            Toast.makeText(context, "Welcome back, ${viewModel.loggedInUserName.value}!", Toast.LENGTH_SHORT).show()
+                                            onLoginSuccess()
+                                        }
+                                        is AuthResult.Error -> {
+                                            errorMessage = result.message
+                                        }
+                                        is AuthResult.Cancelled -> {}
+                                    }
                                 }
                             }
                         },
+                        enabled = !isLoading,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(52.dp)
@@ -386,18 +556,98 @@ fun LoginScreen(
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = HaazriPrimary)
                     ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                color = Color.White,
+                                strokeWidth = 2.5.dp
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = if (isRegisterMode) "Creating Cloud Account..." else "Verifying with Firebase...",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        } else {
+                            Text(
+                                text = if (isRegisterMode) "Create Account (Sign Up)" else "Login to Dashboard",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Icon(
+                                imageVector = Icons.Default.ArrowForward,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Divider with OR
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
                         Text(
-                            text = if (isRegisterMode) "Create Account (Sign Up)" else "Login to Dashboard",
-                            fontSize = 15.sp,
+                            text = "OR",
+                            fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White
+                            color = Color(0xFF94A3B8),
+                            modifier = Modifier.padding(horizontal = 12.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Google Sign-In Button
+                    OutlinedButton(
+                        onClick = {
+                            if (isLoading) return@OutlinedButton
+                            errorMessage = null
+                            coroutineScope.launch {
+                                isLoading = true
+                                val result = viewModel.signInWithGoogle()
+                                isLoading = false
+                                when (result) {
+                                    is AuthResult.Success -> {
+                                        Toast.makeText(context, "Welcome, ${viewModel.loggedInUserName.value}!", Toast.LENGTH_SHORT).show()
+                                        onLoginSuccess()
+                                    }
+                                    is AuthResult.Error -> {
+                                        errorMessage = result.message
+                                    }
+                                    is AuthResult.Cancelled -> {}
+                                }
+                            }
+                        },
+                        enabled = !isLoading,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("btn_google_signin"),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White)
+                    ) {
                         Icon(
-                            imageVector = Icons.Default.ArrowForward,
-                            contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
+                            imageVector = Icons.Default.AccountCircle,
+                            contentDescription = "Google Sign In",
+                            tint = Color(0xFFEA4335),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Continue with Google",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF1E293B)
                         )
                     }
                 }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,10 +40,9 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
     val userPhone by viewModel.loggedInPhone.collectAsState()
     val userEmail by viewModel.loggedInEmail.collectAsState()
     val firebaseUserInfo by viewModel.firebaseUserInfo.collectAsState()
-    val selectedLanguage by viewModel.selectedLanguage.collectAsState()
     val appLockManager = remember { AppLockManager(context) }
-    val savedPin by appLockManager.getPin().collectAsState(initial = null)
-    val isBiometricEnabled by appLockManager.isBiometricEnabled().collectAsState(initial = false)
+    val savedPin by appLockManager.pinFlow.collectAsState(initial = null)
+    val isBiometricEnabled by appLockManager.biometricFlow.collectAsState(initial = false)
     val isAppLockEnabled = savedPin != null
 
     val isAmountsHidden by viewModel.isAmountsHidden.collectAsState()
@@ -54,7 +54,6 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
     var hideAmounts by remember { mutableStateOf(notificationSettings?.hideAmounts ?: false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
     var showEditProfileDialog by remember { mutableStateOf(false) }
-    var showLanguageDialog by remember { mutableStateOf(false) }
     var showDataInfoDialog by remember { mutableStateOf(false) }
     var showAppLockDialog by remember { mutableStateOf(false) }
 
@@ -126,55 +125,7 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
         )
     }
 
-    // 2. Language Dialog
-    if (showLanguageDialog) {
-        val languages = listOf(
-            "English",
-            "Hindi (हिंदी)",
-            "Gujarati (ગુજરાતી)",
-            "Marathi (मराठी)",
-            "Hinglish"
-        )
-        AlertDialog(
-            onDismissRequest = { showLanguageDialog = false },
-            title = { Text("Select App Language", fontWeight = FontWeight.Bold) },
-            text = {
-                Column {
-                    languages.forEach { lang ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    viewModel.updateLanguage(lang)
-                                    showLanguageDialog = false
-                                    Toast.makeText(context, "Language changed to $lang", Toast.LENGTH_SHORT).show()
-                                }
-                                .padding(vertical = 12.dp, horizontal = 4.dp)
-                        ) {
-                            RadioButton(
-                                selected = (selectedLanguage == lang),
-                                onClick = {
-                                    viewModel.updateLanguage(lang)
-                                    showLanguageDialog = false
-                                    Toast.makeText(context, "Language changed to $lang", Toast.LENGTH_SHORT).show()
-                                }
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(lang, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                OutlinedButton(onClick = { showLanguageDialog = false }) {
-                    Text("Close")
-                }
-            }
-        )
-    }
-
-    // 3. Your Data Info Dialog
+    // 2. Your Data Info Dialog
     if (showDataInfoDialog) {
         AlertDialog(
             onDismissRequest = { showDataInfoDialog = false },
@@ -198,6 +149,8 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                             Text("• Attendance logs: ${attendanceRecords.size}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             Spacer(modifier = Modifier.height(4.dp))
                             Text("• Cashbook transactions: ${cashbookEntries.size}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("• 24h Auto-Backup: Active (WorkManager)", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF15803D))
                         }
                     }
                 }
@@ -256,15 +209,17 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                             singleLine = true
                         )
                         Spacer(modifier = Modifier.height(12.dp))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("Enable Fingerprint Unlock", modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium, fontSize = 14.sp)
-                            Switch(
-                                checked = tempBiometric,
-                                onCheckedChange = { tempBiometric = it }
-                            )
+                        if (appLockManager.canAuthenticateWithBiometrics()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Enable Fingerprint Unlock", modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium, fontSize = 14.sp)
+                                Switch(
+                                    checked = tempBiometric,
+                                    onCheckedChange = { tempBiometric = it }
+                                )
+                            }
                         }
                     }
                 }
@@ -399,41 +354,13 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                     onClick = { showEditProfileDialog = true },
                     modifier = Modifier.testTag("edit_profile_row")
                 )
-                Divider(color = Color(0xFFF1F5F9))
+                HorizontalDivider(color = Color(0xFFF1F5F9))
                 SettingsRow(
-                    icon = Icons.Outlined.Language,
-                    title = "Language",
-                    subtitle = selectedLanguage,
-                    onClick = { showLanguageDialog = true },
-                    modifier = Modifier.testTag("language_row")
-                )
-                Divider(color = Color(0xFFF1F5F9))
-                SettingsRow(
-                    icon = Icons.Outlined.Logout,
+                    icon = Icons.AutoMirrored.Filled.Logout,
                     title = "Logout / Switch Account",
                     subtitle = "Log out from $companyName",
                     onClick = { showLogoutDialog = true },
                     modifier = Modifier.testTag("logout_row")
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(18.dp))
-
-        // Section: Geofence & Location Tracking
-        SettingsSectionHeader("Geofence & Tracking")
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column {
-                SettingsRow(
-                    icon = Icons.Outlined.LocationOn,
-                    title = "Geofence Settings",
-                    subtitle = "Set office location & radius for automatic location check-in",
-                    onClick = { viewModel.activeScreen.value = ScreenState.GEOFENCE_ADMIN },
-                    modifier = Modifier.testTag("geofence_settings_row")
                 )
             }
         }
@@ -455,7 +382,7 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                     onClick = { showDataInfoDialog = true },
                     modifier = Modifier.testTag("your_data_row")
                 )
-                Divider(color = Color(0xFFF1F5F9))
+                HorizontalDivider(color = Color(0xFFF1F5F9))
                 SettingsRow(
                     icon = Icons.Outlined.Lock,
                     title = "App Lock",
@@ -463,7 +390,7 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                     onClick = { showAppLockDialog = true },
                     modifier = Modifier.testTag("app_lock_row")
                 )
-                Divider(color = Color(0xFFF1F5F9))
+                HorizontalDivider(color = Color(0xFFF1F5F9))
                 SettingsRow(
                     icon = Icons.Outlined.Notifications,
                     title = "Reminders & Notifications",
@@ -471,7 +398,7 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                     onClick = { viewModel.activeScreen.value = ScreenState.NOTIFICATIONS_SETUP },
                     modifier = Modifier.testTag("reminders_settings_row")
                 )
-                Divider(color = Color(0xFFF1F5F9))
+                HorizontalDivider(color = Color(0xFFF1F5F9))
 
                 // Toggle Switch Row: Hide amounts
                 Row(
@@ -522,11 +449,11 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                     onClick = { viewModel.activeScreen.value = ScreenState.MONTHLY_REPORT },
                     modifier = Modifier.testTag("all_staff_monthly_report_row")
                 )
-                Divider(color = Color(0xFFF1F5F9))
+                HorizontalDivider(color = Color(0xFFF1F5F9))
                 SettingsRow(
-                    icon = Icons.Outlined.CloudUpload,
+                    icon = Icons.Outlined.Storage,
                     title = "Backup & Restore",
-                    subtitle = "Export, share & restore database files",
+                    subtitle = "Offline backup, export & restore database files",
                     onClick = { viewModel.activeScreen.value = ScreenState.BACKUP_RESTORE },
                     modifier = Modifier.testTag("backup_restore_row")
                 )
@@ -546,11 +473,11 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                 SettingsRow(
                     icon = Icons.Outlined.PrivacyTip,
                     title = "Privacy Policy",
-                    subtitle = "Data protection, Geofencing & privacy policy",
+                    subtitle = "Data protection & privacy policy",
                     onClick = { viewModel.activeScreen.value = ScreenState.PRIVACY_POLICY },
                     modifier = Modifier.testTag("privacy_policy_row")
                 )
-                Divider(color = Color(0xFFF1F5F9))
+                HorizontalDivider(color = Color(0xFFF1F5F9))
                 SettingsRow(
                     icon = Icons.Outlined.Gavel,
                     title = "Terms & Conditions",
@@ -558,7 +485,7 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                     onClick = { viewModel.activeScreen.value = ScreenState.TERMS_OF_SERVICE },
                     modifier = Modifier.testTag("terms_of_service_row")
                 )
-                Divider(color = Color(0xFFF1F5F9))
+                HorizontalDivider(color = Color(0xFFF1F5F9))
                 SettingsRow(
                     icon = Icons.Outlined.Security,
                     title = "Data Safety & Permissions",
@@ -566,7 +493,7 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                     onClick = { viewModel.activeScreen.value = ScreenState.DATA_SAFETY },
                     modifier = Modifier.testTag("data_safety_row")
                 )
-                Divider(color = Color(0xFFF1F5F9))
+                HorizontalDivider(color = Color(0xFFF1F5F9))
                 SettingsRow(
                     icon = Icons.Outlined.Info,
                     title = "About App & Developer",
@@ -597,7 +524,7 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                         .testTag("logout_button_last")
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Logout,
+                        imageVector = Icons.AutoMirrored.Filled.Logout,
                         contentDescription = "Logout",
                         tint = Color.White,
                         modifier = Modifier.size(20.dp)

@@ -108,7 +108,7 @@ fun AboutAppScreen(viewModel: HaazriViewModel) {
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Attendance App (Haazri Pro) is an all-in-one daily workforce attendance, overtime, salary, and cashbook management tool tailored for small businesses, contractors, factories, and site supervisors.\n\nFeaturing local offline database security, Geofence-verified check-ins, multi-language support (English, Hindi, Gujarati, Marathi), automated PDF/Excel salary slips, and instant WhatsApp payslip sharing.",
+                    text = "Attendance App (Haazri Pro) is an all-in-one daily workforce attendance, overtime, salary, and cashbook management tool tailored for small businesses, contractors, factories, and site supervisors.\n\nFeaturing local offline database security, automated PDF/Excel salary slips, and instant WhatsApp payslip sharing.",
                     fontSize = 13.sp,
                     color = Color(0xFF475569),
                     lineHeight = 19.sp
@@ -138,14 +138,14 @@ fun AboutAppScreen(viewModel: HaazriViewModel) {
                     subtitle = "How we protect and handle your information",
                     onClick = { viewModel.activeScreen.value = ScreenState.PRIVACY_POLICY }
                 )
-                Divider(color = Color(0xFFF1F5F9))
+                HorizontalDivider(color = Color(0xFFF1F5F9))
                 AboutLinkRow(
                     icon = Icons.Outlined.Gavel,
                     title = "Terms & Conditions",
                     subtitle = "User agreement & service terms",
                     onClick = { viewModel.activeScreen.value = ScreenState.TERMS_OF_SERVICE }
                 )
-                Divider(color = Color(0xFFF1F5F9))
+                HorizontalDivider(color = Color(0xFFF1F5F9))
                 AboutLinkRow(
                     icon = Icons.Outlined.Security,
                     title = "Data Safety & Permissions",

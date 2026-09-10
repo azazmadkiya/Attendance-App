@@ -48,11 +48,16 @@ class AppLockManager(private val context: Context) {
         }
     }
 
-    fun getPin(): Flow<String?> = context.dataStore.data.map { prefs ->
+    val pinFlow: Flow<String?> = context.dataStore.data.map { prefs ->
         prefs[APP_LOCK_PIN]
     }
 
-    fun isBiometricEnabled(): Flow<Boolean> = context.dataStore.data.map { prefs ->
+    val biometricFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[BIOMETRIC_ENABLED] ?: false
+    }
+
+    fun canAuthenticateWithBiometrics(): Boolean {
+        val biometricManager = androidx.biometric.BiometricManager.from(context)
+        return biometricManager.canAuthenticate(androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG or androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK) == androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
     }
 }

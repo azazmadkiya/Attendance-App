@@ -1,0 +1,2 @@
+#!/bin/bash
+sed -i 's/super\.onCreate(savedInstanceState)/val originalHandler = Thread.getDefaultUncaughtExceptionHandler()\n        Thread.setDefaultUncaughtExceptionHandler { thread, exception ->\n            val sw = java.io.StringWriter()\n            exception.printStackTrace(java.io.PrintWriter(sw))\n            runOnUiThread {\n                crashTrace = sw.toString()\n            }\n        }\n        super.onCreate(savedInstanceState)/g' app/src/main/java/com/example/MainActivity.kt

@@ -2,7 +2,6 @@ package com.example.util
 
 import com.example.data.AttendanceRecord
 import com.example.data.CashbookEntry
-import com.example.data.GeofenceConfig
 import com.example.data.NotificationSetting
 import com.example.data.Worker
 import org.json.JSONArray
@@ -12,7 +11,6 @@ data class BackupData(
     val workers: List<Worker>,
     val attendanceRecords: List<AttendanceRecord>,
     val cashbookEntries: List<CashbookEntry>,
-    val geofenceConfig: GeofenceConfig?,
     val notificationSetting: NotificationSetting?
 )
 
@@ -22,12 +20,19 @@ object BackupManager {
         workers: List<Worker>,
         attendanceRecords: List<AttendanceRecord>,
         cashbookEntries: List<CashbookEntry>,
-        geofenceConfig: GeofenceConfig?,
         notificationSetting: NotificationSetting?
     ): String {
         val root = JSONObject()
         root.put("version", 1)
+        root.put("appName", "Attendance & Payroll")
         root.put("exportTimestamp", System.currentTimeMillis())
+
+        // Summary metadata for easy verification
+        val meta = JSONObject()
+        meta.put("totalWorkers", workers.size)
+        meta.put("totalAttendanceRecords", attendanceRecords.size)
+        meta.put("totalCashbookEntries", cashbookEntries.size)
+        root.put("meta", meta)
 
         // Workers
         val workersArray = JSONArray()
@@ -63,9 +68,6 @@ object BackupManager {
             obj.put("checkOutTime", a.checkOutTime)
             obj.put("overtimeHours", a.overtimeHours)
             obj.put("customAmount", a.customAmount)
-            obj.put("isGeofenceVerified", a.isGeofenceVerified)
-            obj.put("latitude", a.latitude)
-            obj.put("longitude", a.longitude)
             obj.put("notes", a.notes)
             attendanceArray.put(obj)
         }
@@ -87,19 +89,6 @@ object BackupManager {
         }
         root.put("cashbookEntries", cashbookArray)
 
-        // Geofence Config
-        if (geofenceConfig != null) {
-            val geoObj = JSONObject()
-            geoObj.put("id", geofenceConfig.id)
-            geoObj.put("officeName", geofenceConfig.officeName)
-            geoObj.put("latitude", geofenceConfig.latitude)
-            geoObj.put("longitude", geofenceConfig.longitude)
-            geoObj.put("radiusMeters", geofenceConfig.radiusMeters.toDouble())
-            geoObj.put("isEnabled", geofenceConfig.isEnabled)
-            geoObj.put("autoMarkPresent", geofenceConfig.autoMarkPresent)
-            root.put("geofenceConfig", geoObj)
-        }
-
         // Notification Setting
         if (notificationSetting != null) {
             val notifObj = JSONObject()
@@ -115,79 +104,95 @@ object BackupManager {
         return root.toString(2)
     }
 
-    fun importFromJson(jsonString: String): BackupData {
-        val startIndex = jsonString.indexOf('{')
-        val endIndex = jsonString.lastIndexOf('}')
-        if (startIndex == -1 || endIndex == -1 || startIndex > endIndex) {
-            throw IllegalArgumentException("Invalid JSON format: Missing root braces")
-        }
-        val cleanJson = jsonString.substring(startIndex, endIndex + 1)
-        val root = JSONObject(cleanJson)
+    fun importFromJson(rawJson: String): BackupData {
+        // Strip BOM and excess whitespace
+        val cleanInput = rawJson.trim().removePrefix("\uFEFF")
 
         val workers = mutableListOf<Worker>()
-        if (root.has("workers")) {
-            val workersArray = root.getJSONArray("workers")
-            for (i in 0 until workersArray.length()) {
-                val obj = workersArray.getJSONObject(i)
-                workers.add(
-                    Worker(
-                        id = obj.optLong("id", 0L),
-                        name = obj.optString("name", "Worker"),
-                        phone = obj.optString("phone", ""),
-                        wageType = obj.optString("wageType", "Monthly"),
-                        wageRate = obj.optDouble("wageRate", 0.0),
-                        overtimeRate = obj.optDouble("overtimeRate", 0.0),
-                        upiId = obj.optString("upiId", ""),
-                        hajariMultiplier = obj.optString("hajariMultiplier", "Off"),
-                        overtimeMultiplier = obj.optString("overtimeMultiplier", "1.5x"),
-                        lateFine = obj.optDouble("lateFine", 0.0),
-                        lateGracePeriodMinutes = obj.optInt("lateGracePeriodMinutes", 0),
-                        halfDayPayFactor = obj.optDouble("halfDayPayFactor", 0.5),
-                        notes = obj.optString("notes", ""),
-                        createdAt = obj.optLong("createdAt", System.currentTimeMillis())
-                    )
-                )
-            }
-        }
-
         val attendanceRecords = mutableListOf<AttendanceRecord>()
-        if (root.has("attendanceRecords")) {
-            val attendanceArray = root.getJSONArray("attendanceRecords")
-            for (i in 0 until attendanceArray.length()) {
-                val obj = attendanceArray.getJSONObject(i)
-                attendanceRecords.add(
-                    AttendanceRecord(
-                        id = obj.optLong("id", 0L),
-                        workerId = obj.optLong("workerId", 0L),
-                        date = obj.optString("date", ""),
-                        status = obj.optString("status", "P"),
-                        checkInTime = obj.optString("checkInTime", ""),
-                        checkOutTime = obj.optString("checkOutTime", ""),
-                        overtimeHours = obj.optDouble("overtimeHours", 0.0),
-                        customAmount = obj.optDouble("customAmount", 0.0),
-                        isGeofenceVerified = obj.optBoolean("isGeofenceVerified", false),
-                        latitude = obj.optDouble("latitude", 0.0),
-                        longitude = obj.optDouble("longitude", 0.0),
-                        notes = obj.optString("notes", "")
-                    )
-                )
+        val cashbookEntries = mutableListOf<CashbookEntry>()
+        var notificationSetting: NotificationSetting? = null
+
+        // Handle if user pasted directly a JSON Array of workers: [ {...}, {...} ]
+        if (cleanInput.startsWith("[")) {
+            val array = JSONArray(cleanInput)
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                parseWorker(obj)?.let { workers.add(it) }
+            }
+            return BackupData(workers, attendanceRecords, cashbookEntries, notificationSetting)
+        }
+
+        // Find outer JSON object boundaries
+        val startIndex = cleanInput.indexOf('{')
+        val endIndex = cleanInput.lastIndexOf('}')
+        if (startIndex == -1 || endIndex == -1 || startIndex >= endIndex) {
+            throw IllegalArgumentException("Invalid backup format: No valid JSON object found.")
+        }
+
+        val jsonString = cleanInput.substring(startIndex, endIndex + 1)
+        val root = JSONObject(jsonString)
+
+        // Workers parsing (supports "workers", "staff", "employees")
+        val workersArray = root.optJSONArray("workers")
+            ?: root.optJSONArray("staff")
+            ?: root.optJSONArray("employees")
+
+        if (workersArray != null) {
+            for (i in 0 until workersArray.length()) {
+                val obj = workersArray.optJSONObject(i) ?: continue
+                parseWorker(obj)?.let { workers.add(it) }
             }
         }
 
-        val cashbookEntries = mutableListOf<CashbookEntry>()
-        if (root.has("cashbookEntries")) {
-            val cashbookArray = root.getJSONArray("cashbookEntries")
+        // Attendance parsing (supports "attendanceRecords", "attendance", "records")
+        val attendanceArray = root.optJSONArray("attendanceRecords")
+            ?: root.optJSONArray("attendance")
+            ?: root.optJSONArray("records")
+
+        if (attendanceArray != null) {
+            for (i in 0 until attendanceArray.length()) {
+                val obj = attendanceArray.optJSONObject(i) ?: continue
+                val id = optFlexibleLong(obj, "id", 0L)
+                val workerId = optFlexibleLong(obj, "workerId", 0L)
+                val date = obj.optString("date", "")
+                if (date.isNotBlank()) {
+                    attendanceRecords.add(
+                        AttendanceRecord(
+                            id = id,
+                            workerId = workerId,
+                            date = date,
+                            status = obj.optString("status", "P"),
+                            checkInTime = obj.optString("checkInTime", ""),
+                            checkOutTime = obj.optString("checkOutTime", ""),
+                            overtimeHours = optFlexibleDouble(obj, "overtimeHours", 0.0),
+                            customAmount = optFlexibleDouble(obj, "customAmount", 0.0),
+                            notes = obj.optString("notes", "")
+                        )
+                    )
+                }
+            }
+        }
+
+        // Cashbook parsing (supports "cashbookEntries", "cashbook", "ledger", "expenses")
+        val cashbookArray = root.optJSONArray("cashbookEntries")
+            ?: root.optJSONArray("cashbook")
+            ?: root.optJSONArray("ledger")
+            ?: root.optJSONArray("expenses")
+
+        if (cashbookArray != null) {
             for (i in 0 until cashbookArray.length()) {
-                val obj = cashbookArray.getJSONObject(i)
-                val wId = obj.optLong("workerId", -1L)
+                val obj = cashbookArray.optJSONObject(i) ?: continue
+                val rawWId = optFlexibleLong(obj, "workerId", -1L)
+                val date = obj.optString("date", "")
                 cashbookEntries.add(
                     CashbookEntry(
-                        id = obj.optLong("id", 0L),
-                        workerId = if (wId == -1L) null else wId,
+                        id = optFlexibleLong(obj, "id", 0L),
+                        workerId = if (rawWId <= 0L) null else rawWId,
                         type = obj.optString("type", "EXPENSE"),
-                        amount = obj.optDouble("amount", 0.0),
+                        amount = optFlexibleDouble(obj, "amount", 0.0),
                         category = obj.optString("category", "General"),
-                        date = obj.optString("date", ""),
+                        date = if (date.isNotBlank()) date else "2026-01-01",
                         time = obj.optString("time", ""),
                         notes = obj.optString("notes", "")
                     )
@@ -195,39 +200,92 @@ object BackupManager {
             }
         }
 
-        var geofenceConfig: GeofenceConfig? = null
-        if (root.has("geofenceConfig")) {
-            val obj = root.getJSONObject("geofenceConfig")
-            geofenceConfig = GeofenceConfig(
-                id = obj.optInt("id", 1),
-                officeName = obj.optString("officeName", "Main HQ Office"),
-                latitude = obj.optDouble("latitude", 28.6139),
-                longitude = obj.optDouble("longitude", 77.2090),
-                radiusMeters = obj.optDouble("radiusMeters", 200.0).toFloat(),
-                isEnabled = obj.optBoolean("isEnabled", true),
-                autoMarkPresent = obj.optBoolean("autoMarkPresent", true)
-            )
+        // Notification Setting
+        if (root.has("notificationSetting")) {
+            val obj = root.optJSONObject("notificationSetting")
+            if (obj != null) {
+                notificationSetting = NotificationSetting(
+                    id = optFlexibleInt(obj, "id", 1),
+                    dailyReminderEnabled = optFlexibleBoolean(obj, "dailyReminderEnabled", true),
+                    reminderTime = obj.optString("reminderTime", "09:00 AM"),
+                    missedCheckoutNudge = optFlexibleBoolean(obj, "missedCheckoutNudge", true),
+                    weeklyReportEnabled = optFlexibleBoolean(obj, "weeklyReportEnabled", true),
+                    hideAmounts = optFlexibleBoolean(obj, "hideAmounts", false)
+                )
+            }
         }
 
-        var notificationSetting: NotificationSetting? = null
-        if (root.has("notificationSetting")) {
-            val obj = root.getJSONObject("notificationSetting")
-            notificationSetting = NotificationSetting(
-                id = obj.optInt("id", 1),
-                dailyReminderEnabled = obj.optBoolean("dailyReminderEnabled", true),
-                reminderTime = obj.optString("reminderTime", "09:00 AM"),
-                missedCheckoutNudge = obj.optBoolean("missedCheckoutNudge", true),
-                weeklyReportEnabled = obj.optBoolean("weeklyReportEnabled", true),
-                hideAmounts = obj.optBoolean("hideAmounts", false)
-            )
+        if (workers.isEmpty() && attendanceRecords.isEmpty() && cashbookEntries.isEmpty()) {
+            throw IllegalArgumentException("The backup file contains no valid workers, attendance, or cashbook records.")
         }
 
         return BackupData(
             workers = workers,
             attendanceRecords = attendanceRecords,
             cashbookEntries = cashbookEntries,
-            geofenceConfig = geofenceConfig,
             notificationSetting = notificationSetting
         )
+    }
+
+    private fun parseWorker(obj: JSONObject): Worker? {
+        val name = obj.optString("name", "").trim()
+        if (name.isBlank()) return null
+        return Worker(
+            id = optFlexibleLong(obj, "id", 0L),
+            name = name,
+            phone = obj.optString("phone", "").trim(),
+            wageType = obj.optString("wageType", "Monthly"),
+            wageRate = optFlexibleDouble(obj, "wageRate", 0.0),
+            overtimeRate = optFlexibleDouble(obj, "overtimeRate", 0.0),
+            upiId = obj.optString("upiId", ""),
+            hajariMultiplier = obj.optString("hajariMultiplier", "Off"),
+            overtimeMultiplier = obj.optString("overtimeMultiplier", "1.5x"),
+            lateFine = optFlexibleDouble(obj, "lateFine", 0.0),
+            lateGracePeriodMinutes = optFlexibleInt(obj, "lateGracePeriodMinutes", 0),
+            halfDayPayFactor = optFlexibleDouble(obj, "halfDayPayFactor", 0.5),
+            notes = obj.optString("notes", ""),
+            createdAt = optFlexibleLong(obj, "createdAt", System.currentTimeMillis())
+        )
+    }
+
+    private fun optFlexibleDouble(obj: JSONObject, key: String, fallback: Double): Double {
+        if (!obj.has(key)) return fallback
+        val value = obj.opt(key) ?: return fallback
+        return when (value) {
+            is Number -> value.toDouble()
+            is String -> value.toDoubleOrNull() ?: fallback
+            else -> fallback
+        }
+    }
+
+    private fun optFlexibleLong(obj: JSONObject, key: String, fallback: Long): Long {
+        if (!obj.has(key)) return fallback
+        val value = obj.opt(key) ?: return fallback
+        return when (value) {
+            is Number -> value.toLong()
+            is String -> value.toLongOrNull() ?: fallback
+            else -> fallback
+        }
+    }
+
+    private fun optFlexibleInt(obj: JSONObject, key: String, fallback: Int): Int {
+        if (!obj.has(key)) return fallback
+        val value = obj.opt(key) ?: return fallback
+        return when (value) {
+            is Number -> value.toInt()
+            is String -> value.toIntOrNull() ?: fallback
+            else -> fallback
+        }
+    }
+
+    private fun optFlexibleBoolean(obj: JSONObject, key: String, fallback: Boolean): Boolean {
+        if (!obj.has(key)) return fallback
+        val value = obj.opt(key) ?: return fallback
+        return when (value) {
+            is Boolean -> value
+            is String -> value.equals("true", ignoreCase = true) || value == "1"
+            is Number -> value.toInt() != 0
+            else -> fallback
+        }
     }
 }

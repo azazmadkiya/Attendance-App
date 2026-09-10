@@ -568,7 +568,7 @@ fun MonthlyReportScreen(viewModel: HaazriViewModel) {
                             }
 
                             Spacer(modifier = Modifier.height(8.dp))
-                            Divider(color = Color(0xFFF1F5F9))
+                            HorizontalDivider(color = Color(0xFFF1F5F9))
                             Spacer(modifier = Modifier.height(8.dp))
 
                             Row(

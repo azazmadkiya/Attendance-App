@@ -10,7 +10,6 @@ import androidx.room.RoomDatabase
         Worker::class,
         AttendanceRecord::class,
         CashbookEntry::class,
-        GeofenceConfig::class,
         NotificationSetting::class
     ],
     version = 2,

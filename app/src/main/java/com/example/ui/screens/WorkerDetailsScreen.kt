@@ -86,6 +86,7 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
     }
     var customStartDate by remember { mutableStateOf("${selectedFilterMonth}-01") }
     var customEndDate by remember { mutableStateOf(sdfDate.format(today)) }
+    var pdfIncludeCalendar by remember { mutableStateOf(true) }
 
     // Filter attendance history based on filterType
     val filteredAttendanceHistory = remember(attendanceHistory, filterType, selectedFilterMonth, customStartDate, customEndDate) {
@@ -672,6 +673,56 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
 
                 Spacer(modifier = Modifier.height(10.dp))
 
+                // Calendar-wise Attendance Option in PDF
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFEFF6FF),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBFDBFE)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { pdfIncludeCalendar = !pdfIncludeCalendar }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CalendarMonth,
+                                contentDescription = null,
+                                tint = Color(0xFF1E3A8A),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Show Calendar in PDF Report",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF1E3A8A)
+                                )
+                                Text(
+                                    text = "Includes visual monthly attendance calendar grid",
+                                    fontSize = 10.sp,
+                                    color = Color(0xFF64748B)
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = pdfIncludeCalendar,
+                            onCheckedChange = { pdfIncludeCalendar = it },
+                            modifier = Modifier.testTag("switch_pdf_calendar")
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
                 // Export Filtered PDF Statement Button
                 Button(
                     onClick = {
@@ -681,7 +732,8 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
                             attendanceHistory = filteredAttendanceHistory,
                             cashbookEntries = filteredCashbookEntries,
                             viewModel = viewModel,
-                            reportPeriodTitle = reportPeriodTitle
+                            reportPeriodTitle = reportPeriodTitle,
+                            includeCalendar = pdfIncludeCalendar
                         )
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),

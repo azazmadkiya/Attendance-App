@@ -1,5 +1,6 @@
 package com.example.viewmodel
 
+import android.app.Activity
 import android.app.Application
 import android.location.Location
 import androidx.lifecycle.AndroidViewModel
@@ -544,10 +545,10 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
         return authManager.sendPasswordResetEmail(email)
     }
 
-    suspend fun signInWithGoogle(): AuthResult = firebaseSignInWithGoogle()
+    suspend fun signInWithGoogle(activity: Activity? = null): AuthResult = firebaseSignInWithGoogle(activity)
 
-    suspend fun firebaseSignInWithGoogle(): AuthResult {
-        val result = authManager.signInWithGoogle()
+    suspend fun firebaseSignInWithGoogle(activity: Activity? = null): AuthResult {
+        val result = authManager.signInWithGoogle(activity)
         if (result is AuthResult.Success) {
             val user = result.user
             val profile = result.profile
@@ -582,6 +583,16 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
             cashbookEntries = data.cashbookEntries,
             notificationSetting = data.notificationSetting
         )
+    }
+
+    suspend fun exportEncryptedBackup(): Result<java.io.File> {
+        val db = HaazriDatabase.getDatabase(getApplication())
+        return com.example.util.DatabaseBackupManager.backupDatabase(getApplication(), db)
+    }
+
+    suspend fun restoreEncryptedBackup(): Result<Unit> {
+        val db = HaazriDatabase.getDatabase(getApplication())
+        return com.example.util.DatabaseBackupManager.restoreDatabase(getApplication(), db)
     }
 
     fun exportBackupJson(): String {

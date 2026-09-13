@@ -1,5 +1,9 @@
 package com.example.ui.screens
 
+import android.app.Activity
+import android.content.ContextWrapper
+import android.content.Intent
+import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
@@ -43,6 +47,14 @@ fun LoginScreen(
     onLoginSuccess: () -> Unit
 ) {
     val context = LocalContext.current
+    val activity = remember(context) {
+        var c = context
+        while (c is ContextWrapper) {
+            if (c is Activity) return@remember c
+            c = c.baseContext
+        }
+        null
+    }
     val coroutineScope = rememberCoroutineScope()
 
     // Mode: Login vs Sign-Up
@@ -204,23 +216,69 @@ fun LoginScreen(
                             color = Color(0xFFFFEBEE),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(10.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            Column(
+                                modifier = Modifier.padding(12.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.ErrorOutline,
-                                    contentDescription = "Error",
-                                    tint = Color(0xFFC62828),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = errorMessage!!,
-                                    fontSize = 12.sp,
-                                    color = Color(0xFFC62828),
-                                    lineHeight = 16.sp
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.ErrorOutline,
+                                        contentDescription = "Error",
+                                        tint = Color(0xFFC62828),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = errorMessage!!,
+                                        fontSize = 12.sp,
+                                        color = Color(0xFFC62828),
+                                        lineHeight = 16.sp,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                                if (errorMessage!!.contains("device Settings", ignoreCase = true) ||
+                                    errorMessage!!.contains("Google account", ignoreCase = true)
+                                ) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    OutlinedButton(
+                                        onClick = {
+                                            val intent = Intent(Settings.ACTION_ADD_ACCOUNT).apply {
+                                                putExtra(Settings.EXTRA_ACCOUNT_TYPES, arrayOf("com.google"))
+                                                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                            }
+                                            try {
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                try {
+                                                    context.startActivity(Intent(Settings.ACTION_SETTINGS).apply {
+                                                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                    })
+                                                } catch (_: Exception) {}
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(6.dp),
+                                        border = BorderStroke(1.dp, Color(0xFFC62828)),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(36.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Settings,
+                                            contentDescription = null,
+                                            tint = Color(0xFFC62828),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "Open Device Settings to Add Account",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color(0xFFC62828)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -613,7 +671,7 @@ fun LoginScreen(
                             errorMessage = null
                             coroutineScope.launch {
                                 isLoading = true
-                                val result = viewModel.signInWithGoogle()
+                                val result = viewModel.signInWithGoogle(activity)
                                 isLoading = false
                                 when (result) {
                                     is AuthResult.Success -> {

@@ -14,11 +14,11 @@ android {
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
-    applicationId = "com.aistudio.haazripro.attendance"
+    applicationId = "com.attendance.app.azaz"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = 2
+    versionName = "1.1"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -30,10 +30,17 @@ android {
       keyAlias = "androiddebugkey"
       keyPassword = "android"
     }
+    create("releaseConfig") {
+      storeFile = file("${rootDir}/release.keystore")
+      storePassword = "androidrelease"
+      keyAlias = "releasekey"
+      keyPassword = "androidrelease"
+    }
   }
 
   buildTypes {
     release {
+      signingConfig = signingConfigs.getByName("releaseConfig")
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -94,6 +101,7 @@ dependencies {
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
   implementation(libs.androidx.work.runtime.ktx)
+  implementation(libs.androidx.security.crypto)
   // implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)

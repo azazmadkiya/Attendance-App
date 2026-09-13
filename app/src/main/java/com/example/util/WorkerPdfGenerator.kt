@@ -16,6 +16,7 @@ import com.example.viewmodel.HaazriViewModel
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -53,12 +54,102 @@ object WorkerPdfGenerator {
         return periodTitle
     }
 
+    fun generateCalendarGridHtml(
+        records: List<AttendanceRecord>,
+        yearMonthStr: String
+    ): String {
+        return try {
+            val parts = yearMonthStr.split("-")
+            val year = parts[0].toInt()
+            val month = parts[1].toInt() // 1-12
+
+            val cal = Calendar.getInstance()
+            cal.set(Calendar.YEAR, year)
+            cal.set(Calendar.MONTH, month - 1)
+            cal.set(Calendar.DAY_OF_MONTH, 1)
+
+            val daysInMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
+            // Sunday = 1, Monday = 2, ..., Saturday = 7
+            val firstDayOfWeek = cal.get(Calendar.DAY_OF_WEEK) // 1=Sun, 2=Mon, ...
+            // We align grid starting Monday: Monday=0, Tuesday=1, ..., Sunday=6
+            val offset = (firstDayOfWeek + 5) % 7
+
+            val recordMap = records.associateBy { it.date }
+
+            val monthTitle = SimpleDateFormat("MMMM yyyy", Locale.getDefault()).format(cal.time)
+
+            var cellsHtml = StringBuilder()
+
+            // Empty cells before day 1
+            for (i in 0 until offset) {
+                cellsHtml.append("""<div class="cal-cell empty"></div>""")
+            }
+
+            // Days of the month
+            for (day in 1..daysInMonth) {
+                val dateStr = String.format(Locale.US, "%04d-%02d-%02d", year, month, day)
+                val rec = recordMap[dateStr]
+                val status = rec?.status
+                val statusClass = when (status) {
+                    "P" -> "present"
+                    "A" -> "absent"
+                    "1/2" -> "half"
+                    else -> "none"
+                }
+                val badgeText = when (status) {
+                    "P" -> "P"
+                    "A" -> "A"
+                    "1/2" -> "½"
+                    else -> ""
+                }
+                val noteIndicator = if (rec != null && rec.notes.isNotBlank()) """<div class="cal-dot"></div>""" else ""
+                val otIndicator = if (rec != null && rec.overtimeHours > 0) """<div class="cal-ot">+${rec.overtimeHours}h</div>""" else ""
+
+                cellsHtml.append("""
+                    <div class="cal-cell $statusClass">
+                        <div class="cal-day-num">$day</div>
+                        <div class="cal-badge">$badgeText</div>
+                        $noteIndicator
+                        $otIndicator
+                    </div>
+                """.trimIndent())
+            }
+
+            """
+            <div class="cal-card">
+                <div class="cal-header">
+                    <strong>📅 Attendance Calendar View — $monthTitle</strong>
+                </div>
+                <div class="cal-legend">
+                    <span class="legend-item"><span class="legend-box p">P</span> Present</span>
+                    <span class="legend-item"><span class="legend-box a">A</span> Absent</span>
+                    <span class="legend-item"><span class="legend-box h">½</span> Half Day</span>
+                    <span class="legend-item"><span class="legend-box o"></span> Off / No Record</span>
+                </div>
+                <div class="cal-grid">
+                    <div class="cal-col-head">Mon</div>
+                    <div class="cal-col-head">Tue</div>
+                    <div class="cal-col-head">Wed</div>
+                    <div class="cal-col-head">Thu</div>
+                    <div class="cal-col-head">Fri</div>
+                    <div class="cal-col-head">Sat</div>
+                    <div class="cal-col-head" style="color: #dc2626;">Sun</div>
+                    $cellsHtml
+                </div>
+            </div>
+            """.trimIndent()
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
     fun buildWorkerHtmlReport(
         worker: Worker,
         attendanceHistory: List<AttendanceRecord>,
         cashbookEntries: List<CashbookEntry>,
         viewModel: HaazriViewModel,
-        reportPeriodTitle: String = "Full History"
+        reportPeriodTitle: String = "Full History",
+        includeCalendar: Boolean = true
     ): String {
         val displayPeriod = formatDisplayPeriod(reportPeriodTitle)
         val currentDate = SimpleDateFormat("dd-MMM-yyyy", Locale.getDefault()).format(Date())
@@ -127,6 +218,21 @@ object WorkerPdfGenerator {
             """.trimIndent()
         }
 
+        val calendarSectionHtml = if (includeCalendar) {
+            val monthsToRender = if (reportPeriodTitle.startsWith("Month ")) {
+                listOf(reportPeriodTitle.removePrefix("Month ").trim())
+            } else {
+                val derivedMonths = attendanceHistory.map { it.date.take(7) }.filter { it.matches(Regex("""^\d{4}-\d{2}$""")) }.distinct().sortedDescending()
+                if (derivedMonths.isNotEmpty()) derivedMonths else listOf(SimpleDateFormat("yyyy-MM", Locale.getDefault()).format(Date()))
+            }
+            monthsToRender.joinToString("\n") { ym ->
+                val monthRecords = attendanceHistory.filter { it.date.startsWith(ym) }
+                generateCalendarGridHtml(monthRecords, ym)
+            }
+        } else {
+            ""
+        }
+
         return """
         <!DOCTYPE html>
         <html>
@@ -148,6 +254,34 @@ object WorkerPdfGenerator {
                 th { background: #1e3a8a; color: white; text-align: left; padding: 8px; font-size: 11px; text-transform: uppercase; }
                 td { padding: 8px; border-bottom: 1px solid #e2e8f0; }
                 tr:nth-child(even) { background: #f8fafc; }
+
+                /* Calendar Grid Styles */
+                .cal-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px; padding: 14px; margin-top: 16px; margin-bottom: 20px; page-break-inside: avoid; }
+                .cal-header { font-size: 14px; font-weight: bold; color: #1e3a8a; margin-bottom: 8px; }
+                .cal-legend { font-size: 11px; margin-bottom: 12px; display: flex; gap: 14px; align-items: center; }
+                .legend-item { display: inline-flex; align-items: center; margin-right: 12px; }
+                .legend-box { display: inline-block; width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 4px; font-weight: bold; font-size: 10px; margin-right: 4px; }
+                .legend-box.p { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+                .legend-box.a { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+                .legend-box.h { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+                .legend-box.o { background: #f8fafc; border: 1px solid #e2e8f0; }
+
+                .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 6px; }
+                .cal-col-head { text-align: center; font-weight: bold; font-size: 11px; color: #475569; padding: 4px 0; border-bottom: 1px solid #cbd5e1; }
+                .cal-cell { min-height: 48px; border-radius: 6px; padding: 4px; font-size: 11px; text-align: center; position: relative; border: 1px solid #e2e8f0; box-sizing: border-box; }
+                .cal-cell.empty { background: transparent; border: none; }
+                .cal-cell.present { background: #dcfce7; border-color: #86efac; }
+                .cal-cell.absent { background: #fee2e2; border-color: #fca5a5; }
+                .cal-cell.half { background: #fef3c7; border-color: #fde68a; }
+                .cal-cell.none { background: #f8fafc; border-color: #e2e8f0; }
+                .cal-day-num { font-weight: bold; font-size: 11px; color: #334155; }
+                .cal-badge { font-weight: bold; font-size: 11px; margin-top: 2px; }
+                .cal-cell.present .cal-badge { color: #166534; }
+                .cal-cell.absent .cal-badge { color: #991b1b; }
+                .cal-cell.half .cal-badge { color: #92400e; }
+                .cal-dot { width: 4px; height: 4px; background: #2563eb; border-radius: 50%; margin: 2px auto 0 auto; }
+                .cal-ot { font-size: 9px; font-weight: bold; color: #d97706; }
+
                 .footer { margin-top: 30px; font-size: 11px; text-align: center; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 10px; }
             </style>
         </head>
@@ -183,6 +317,8 @@ object WorkerPdfGenerator {
                     <div class="summary-val" style="color:${if (netBalance <= 0) "#15803d" else "#b91c1c"};">₹${netBalance.toInt()}</div>
                 </div>
             </div>
+
+            $calendarSectionHtml
 
             <div class="section-title">Account Ledger Transactions (Payments & Advances)</div>
             ${if (cashbookEntries.isEmpty()) "<p style='font-size:12px; color:#64748b;'>No payments or advances recorded yet.</p>" else """
@@ -476,9 +612,10 @@ object WorkerPdfGenerator {
         attendanceHistory: List<AttendanceRecord>,
         cashbookEntries: List<CashbookEntry>,
         viewModel: HaazriViewModel,
-        reportPeriodTitle: String = "Full History"
+        reportPeriodTitle: String = "Full History",
+        includeCalendar: Boolean = true
     ) {
-        val htmlContent = buildWorkerHtmlReport(worker, attendanceHistory, cashbookEntries, viewModel, reportPeriodTitle)
+        val htmlContent = buildWorkerHtmlReport(worker, attendanceHistory, cashbookEntries, viewModel, reportPeriodTitle, includeCalendar)
         val webView = WebView(context)
         webView.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String) {

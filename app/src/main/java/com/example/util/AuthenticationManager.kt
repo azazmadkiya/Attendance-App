@@ -1,6 +1,8 @@
 package com.example.util
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.util.Log
 import androidx.credentials.ClearCredentialStateRequest
 import androidx.credentials.CredentialManager
@@ -9,6 +11,7 @@ import androidx.credentials.GetCredentialRequest
 import androidx.credentials.GetCredentialResponse
 import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.exceptions.NoCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.FirebaseNetworkException
@@ -19,6 +22,7 @@ import com.google.firebase.auth.FirebaseAuthUserCollisionException
 import com.google.firebase.auth.FirebaseAuthWeakPasswordException
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
+import com.google.firebase.auth.OAuthProvider
 import com.google.firebase.auth.UserProfileChangeRequest
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
@@ -396,11 +400,54 @@ class AuthenticationManager(
     }
 
     /**
-     * Initiates Google Sign-In flow using Android Jetpack CredentialManager
-     * and signs into Firebase with the resulting Google ID token.
+     * Completes profile synchronization and state management for an authenticated FirebaseUser.
      */
-    suspend fun signInWithGoogle(serverClientId: String = DEFAULT_WEB_CLIENT_ID): AuthResult {
-        return try {
+    private suspend fun handleFirebaseUser(user: FirebaseUser): AuthResult {
+        val profile = fetchProfileFromFirestore(user.uid, user.email ?: "")
+
+        // Handle Google Sign-In missing fields mapping
+        val updatedProfile = if (profile.companyName == "My Business" && profile.phone.isBlank()) {
+            val nameFallback = user.displayName?.ifBlank { "User" } ?: "User"
+            val newProfile = UserProfile(
+                uid = user.uid,
+                companyName = nameFallback,
+                managerName = nameFallback,
+                phone = "",
+                email = user.email ?: ""
+            )
+            saveProfileToFirestore(newProfile, user.email ?: "")
+            newProfile
+        } else {
+            profile
+        }
+
+        _currentUserState.value = user
+        _authUserInfo.value = getCurrentUserInfo()
+        Log.i(TAG, "Successfully authenticated user: ${user.uid} (${user.email})")
+        return AuthResult.Success(user, updatedProfile)
+    }
+
+    /**
+     * Initiates Google Sign-In flow using Android Jetpack CredentialManager (with Activity context)
+     * and automatically falls back to Firebase Web OAuth when no Google account is registered on the device.
+     */
+    suspend fun signInWithGoogle(
+        activity: Activity? = null,
+        serverClientId: String = DEFAULT_WEB_CLIENT_ID
+    ): AuthResult {
+        val currentAuth = auth ?: return AuthResult.Error("Firebase Authentication is not available.")
+        val targetActivity = activity ?: (context as? Activity)
+        val targetContext: Context = targetActivity ?: context
+        val activeCredentialManager = if (targetActivity != null) {
+            CredentialManager.create(targetActivity)
+        } else {
+            credentialManager
+        }
+
+        var credentialManagerException: Exception? = null
+
+        // 1. Primary path: Jetpack Credential Manager (Native bottom sheet)
+        try {
             val rawNonce = UUID.randomUUID().toString()
             val bytes = rawNonce.toByteArray()
             val md = MessageDigest.getInstance("SHA-256")
@@ -418,25 +465,54 @@ class AuthenticationManager(
                 .addCredentialOption(googleIdOption)
                 .build()
 
-            val result: GetCredentialResponse = credentialManager.getCredential(
+            val result: GetCredentialResponse = activeCredentialManager.getCredential(
                 request = request,
-                context = context
+                context = targetContext
             )
 
-            handleSignInResponse(result)
+            return handleSignInResponse(result)
         } catch (e: GetCredentialCancellationException) {
             Log.d(TAG, "Sign-in was cancelled by user: ${e.message}")
-            AuthResult.Cancelled
-        } catch (e: androidx.credentials.exceptions.NoCredentialException) {
-            Log.w(TAG, "No credentials found on device", e)
-            AuthResult.Error("No Google account found on this device. Please add an account in device settings, or use Email/Mobile login.")
-        } catch (e: GetCredentialException) {
-            Log.e(TAG, "Credential Manager sign-in failed", e)
-            AuthResult.Error(e.localizedMessage ?: "Google Sign-In failed")
+            return AuthResult.Cancelled
         } catch (e: Exception) {
-            Log.e(TAG, "Unexpected error during sign-in", e)
-            AuthResult.Error(e.localizedMessage ?: "An unexpected error occurred")
+            Log.w(TAG, "Credential Manager sign-in failed or no credentials: ${e.message}", e)
+            credentialManagerException = e
         }
+
+        // 2. Fallback path: Firebase Web OAuth via startActivityForSignInWithProvider
+        // Allows users to sign in with Google even if no account exists in Android device settings.
+        if (targetActivity != null) {
+            try {
+                Log.i(TAG, "Attempting Firebase Web OAuth for Google Sign-In...")
+                val provider = OAuthProvider.newBuilder("google.com")
+                    .addCustomParameter("prompt", "select_account")
+                    .build()
+
+                val authResult = currentAuth.startActivityForSignInWithProvider(targetActivity, provider).await()
+                val user = authResult.user
+                if (user != null) {
+                    return handleFirebaseUser(user)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Firebase Web OAuth failed: ${e.message}", e)
+                val msg = e.message ?: ""
+                if (msg.contains("canceled", ignoreCase = true) ||
+                    msg.contains("cancelled", ignoreCase = true) ||
+                    msg.contains("closed", ignoreCase = true)
+                ) {
+                    return AuthResult.Cancelled
+                }
+            }
+        }
+
+        // 3. Informative error message if both failed
+        val isNoCred = credentialManagerException is NoCredentialException
+        val errorMsg = if (isNoCred) {
+            "No Google account found on this device. Please add a Google account in device Settings, or sign in using Email / Mobile."
+        } else {
+            credentialManagerException?.localizedMessage ?: "Google Sign-In failed. Please try Email or Mobile login."
+        }
+        return AuthResult.Error(errorMsg)
     }
 
     /**
@@ -453,28 +529,7 @@ class AuthenticationManager(
                         val authResult = auth?.signInWithCredential(authCredential)?.await()
                         val user = authResult?.user
                         if (user != null) {
-                            val profile = fetchProfileFromFirestore(user.uid, user.email ?: "")
-
-                            // Handle Google Sign-In missing fields mapping
-                            val updatedProfile = if (profile.companyName == "My Business" && profile.phone.isBlank()) {
-                                val nameFallback = user.displayName ?: "User"
-                                val newProfile = UserProfile(
-                                    uid = user.uid,
-                                    companyName = nameFallback,
-                                    managerName = nameFallback,
-                                    phone = "",
-                                    email = user.email ?: ""
-                                )
-                                saveProfileToFirestore(newProfile, user.email ?: "")
-                                newProfile
-                            } else {
-                                profile
-                            }
-
-                            _currentUserState.value = user
-                            _authUserInfo.value = getCurrentUserInfo()
-                            Log.i(TAG, "Successfully signed in user: ${user.uid} (${user.email})")
-                            AuthResult.Success(user, updatedProfile)
+                            handleFirebaseUser(user)
                         } else {
                             AuthResult.Error("Firebase returned empty user profile")
                         }

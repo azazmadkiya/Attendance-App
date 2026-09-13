@@ -1,0 +1,8 @@
+App Version: 1.3
+
+What's New in this Release:
+- Performance improvements and under-the-hood optimizations for a smoother experience.
+- Enhancements to worker attendance tracking and cashbook management reliability.
+- Minor bug fixes and UI polish to ensure your data is always accurate and accessible.
+
+Thank you for using our app! If you have any feedback, please reach out to our support.

@@ -1,0 +1,115 @@
+name: Build & Release App Bundle (AAB)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build Release AAB
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Setup Release Keystore
+        run: |
+          echo "=== Setting up Release Keystore ==="
+          if [ -n "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
+            echo "Decoding release keystore from GitHub Secrets..."
+            echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > ./release.keystore
+          elif [ -f "./release.keystore.base64" ]; then
+            echo "Decoding release.keystore.base64 found in repository..."
+            base64 --decode ./release.keystore.base64 > ./release.keystore
+          elif [ -f "./release.keystore" ]; then
+            echo "Existing release.keystore found in repository."
+          else
+            echo "No release keystore found. Generating temporary release keystore..."
+            keytool -genkey -v \
+              -keystore ./release.keystore \
+              -storepass androidrelease \
+              -alias releasekey \
+              -keypass androidrelease \
+              -dname "CN=Android Release,O=Android,C=US" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000
+          fi
+
+      - name: Build Release AAB
+        run: |
+          gradle :app:bundleRelease --stacktrace --no-daemon
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-aab
+          path: app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Prepare AAB release asset
+        id: prepare_asset
+        run: |
+          echo "=== Preparing Release Asset ==="
+          TEMP_RELEASE_DIR=$(mktemp -d "${RUNNER_TEMP:-/tmp}/release_assets_XXXXXX")
+          
+          # Sanitize repo name
+          REPO_RAW="${GITHUB_REPOSITORY#*/}"
+          REPO_CLEAN=$(echo "$REPO_RAW" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-//;s/-$//')
+          if [ -z "$REPO_CLEAN" ]; then
+            REPO_CLEAN="app"
+          fi
+
+          RELEASE_FILENAME="${REPO_CLEAN}-release-build-${GITHUB_RUN_NUMBER}.aab"
+          ASSET_TARGET_PATH="${TEMP_RELEASE_DIR}/${RELEASE_FILENAME}"
+
+          cp "app/build/outputs/bundle/release/app-release.aab" "$ASSET_TARGET_PATH"
+
+          echo "asset_path=${ASSET_TARGET_PATH}" >> "$GITHUB_OUTPUT"
+          echo "asset_name=${RELEASE_FILENAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish AAB to GitHub Releases
+        id: create_release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ASSET_PATH="${{ steps.prepare_asset.outputs.asset_path }}"
+          ASSET_NAME="${{ steps.prepare_asset.outputs.asset_name }}"
+
+          RELEASE_TAG="release-aab-build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
+          RELEASE_TITLE="Release AAB Build #${GITHUB_RUN_NUMBER}"
+
+          NOTES=$(cat <<EOF_NOTES
+          ## Android Release App Bundle (AAB) Build #${GITHUB_RUN_NUMBER} 📱
+
+          - **Build System:** Automated build by GitHub Actions
+          - **Run Number:** ${GITHUB_RUN_NUMBER}
+          - **Commit:** ${GITHUB_SHA}
+          - **Google Play Ready:** This AAB is ready for Google Play Console upload.
+          EOF_NOTES
+          )
+
+          gh release create "$RELEASE_TAG" "$ASSET_PATH" \
+            --title "$RELEASE_TITLE" \
+            --notes "$NOTES" \
+            --target "$GITHUB_SHA" \
+            --latest

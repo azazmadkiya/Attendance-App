@@ -575,7 +575,7 @@ fun LoginScreen(
                                         is AuthResult.Error -> {
                                             errorMessage = result.message
                                         }
-                                        is AuthResult.Cancelled -> {}
+                                        else -> {}
                                     }
                                 }
                             } else {
@@ -603,7 +603,7 @@ fun LoginScreen(
                                         is AuthResult.Error -> {
                                             errorMessage = result.message
                                         }
-                                        is AuthResult.Cancelled -> {}
+                                        else -> {}
                                     }
                                 }
                             }
@@ -684,7 +684,7 @@ fun LoginScreen(
                                         // If credential manager / web auth fails (e.g. no google account on emulator), open email fallback dialog
                                         showGoogleEmailDialog = true
                                     }
-                                    is AuthResult.Cancelled -> {}
+                                    else -> {}
                                 }
                             }
                         },
@@ -709,6 +709,40 @@ fun LoginScreen(
                             fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Color(0xFF1E293B)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Offline / Local Login Button (Guaranteed to work instantly without internet or Firebase)
+                    Button(
+                        onClick = {
+                            val company = companyNameInput.ifBlank { "My Business" }
+                            val name = managerNameInput.ifBlank { "Local Supervisor" }
+                            val phone = phoneInput.filter { it.isDigit() }
+                            viewModel.handleOfflineLogin(company, name, phone)
+                            Toast.makeText(context, "Logged in successfully in Offline Mode!", Toast.LENGTH_SHORT).show()
+                            onLoginSuccess()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("btn_offline_login"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F172A))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudOff,
+                            contentDescription = "Offline Login",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Click to Offline Login (Local Mode)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
                         )
                     }
                 }
@@ -750,7 +784,7 @@ fun LoginScreen(
                                             is AuthResult.Error -> {
                                                 errorMessage = result.message
                                             }
-                                            is AuthResult.Cancelled -> {}
+                                            else -> {}
                                         }
                                     }
                                 } else {

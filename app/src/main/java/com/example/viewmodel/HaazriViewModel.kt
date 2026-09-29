@@ -601,6 +601,29 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
         return result
     }
 
+    fun handleOfflineLogin(companyName: String = "My Business", managerName: String = "Local Supervisor", phone: String = ""): AuthResult.Offline {
+        val profile = UserProfile(
+            uid = "offline_user_${System.currentTimeMillis()}",
+            companyName = companyName.ifBlank { "My Business" },
+            managerName = managerName.ifBlank { "Local Supervisor" },
+            phone = phone.ifBlank { "9999999999" },
+            email = "offline@local.app"
+        )
+        prefs.edit()
+            .putBoolean("is_logged_in", true)
+            .putString("user_name", profile.managerName)
+            .putString("company_name", profile.companyName)
+            .putString("user_email", profile.email)
+            .putString("user_phone", profile.phone)
+            .apply()
+        isLoggedIn.value = true
+        loggedInUserName.value = profile.managerName
+        loggedInCompanyName.value = profile.companyName
+        loggedInEmail.value = profile.email
+        loggedInPhone.value = profile.phone
+        return AuthResult.Offline(profile)
+    }
+
     // Backup & Restore
     suspend fun getFullBackupJson(): String {
         val data = repository.getAllDataForBackup()

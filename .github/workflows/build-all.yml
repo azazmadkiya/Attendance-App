@@ -68,8 +68,8 @@ jobs:
 
       - name: Build Debug APK & Release AAB
         env:
-          JAVA_TOOL_OPTIONS: "-Djava.awt.headless=true -Xmx4096m"
-          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
+          JAVA_TOOL_OPTIONS: "-Djava.awt.headless=true -Xmx2048m"
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m"
         run: |
           chmod +x gradlew
           echo "=== Building Debug APK ==="

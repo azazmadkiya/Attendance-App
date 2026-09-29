@@ -39,6 +39,43 @@ object CloudBackupManager {
         return prefs.getString(KEY_LAST_SYNC_STATUS, "Cloud Protection Active") ?: "Cloud Protection Active"
     }
 
+    private fun getUserIdentifier(context: Context, authManager: AuthenticationManager): String {
+        val user = authManager.getCurrentUser()
+        if (user != null && user.uid.isNotBlank()) {
+            return user.uid
+        }
+
+        val userInfo = authManager.getCurrentUserInfo()
+        if (userInfo != null && !userInfo.email.isNullOrBlank()) {
+            return userInfo.email
+        }
+
+        val mainPrefs = context.getSharedPreferences("haazri_prefs", Context.MODE_PRIVATE)
+        val email = mainPrefs.getString("user_email", null)
+        if (!email.isNullOrBlank()) {
+            return email
+        }
+
+        val phone = mainPrefs.getString("user_phone", null)
+        if (!phone.isNullOrBlank()) {
+            return phone
+        }
+
+        val authPrefs = context.getSharedPreferences("haazri_auth_prefs", Context.MODE_PRIVATE)
+        val lastEmail = authPrefs.getString("last_email", null)
+        if (!lastEmail.isNullOrBlank()) {
+            return lastEmail
+        }
+
+        val androidId = try {
+            android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+        } catch (_: Exception) {
+            null
+        }
+
+        return androidId?.ifBlank { null } ?: "device_account_local"
+    }
+
     /**
      * Backs up the entire local database (workers, attendance, cashbook, settings) to Cloud Firestore.
      */
@@ -48,22 +85,7 @@ object CloudBackupManager {
         authManager: AuthenticationManager
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val user = authManager.getCurrentUser()
-            val userInfo = authManager.getCurrentUserInfo()
-            val authPrefs = context.getSharedPreferences("haazri_auth_prefs", Context.MODE_PRIVATE)
-
-            val emailPref = authPrefs.getString("user_email", "") ?: ""
-            val phonePref = authPrefs.getString("user_phone", "") ?: ""
-
-            val uid = user?.uid?.takeIf { it.isNotBlank() }
-            val email = userInfo?.email?.takeIf { it.isNotBlank() } ?: emailPref.takeIf { it.isNotBlank() }
-            val phone = phonePref.takeIf { it.isNotBlank() }
-
-            val userIdentifier = uid ?: email ?: phone
-
-            if (userIdentifier.isNullOrBlank()) {
-                return@withContext Result.failure(Exception("Please log in or register to enable Cloud Backup & Auto Recovery."))
-            }
+            val userIdentifier = getUserIdentifier(context, authManager)
 
             val backupData = repository.getAllDataForBackup()
             val jsonString = BackupManager.exportToJson(backupData)
@@ -83,8 +105,7 @@ object CloudBackupManager {
                     "workerCount" to backupData.workers.size,
                     "attendanceCount" to backupData.attendanceRecords.size,
                     "cashbookCount" to backupData.cashbookEntries.size,
-                    "userEmail" to (email ?: ""),
-                    "userPhone" to (phone ?: "")
+                    "userIdentifier" to userIdentifier
                 )
 
                 firestore.collection("cloud_backups")
@@ -121,23 +142,12 @@ object CloudBackupManager {
         isOverwrite: Boolean = true
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val user = authManager.getCurrentUser()
-            val userInfo = authManager.getCurrentUserInfo()
-            val authPrefs = context.getSharedPreferences("haazri_auth_prefs", Context.MODE_PRIVATE)
-
-            val emailPref = authPrefs.getString("user_email", "") ?: ""
-            val phonePref = authPrefs.getString("user_phone", "") ?: ""
-
-            val uid = user?.uid?.takeIf { it.isNotBlank() }
-            val email = userInfo?.email?.takeIf { it.isNotBlank() } ?: emailPref.takeIf { it.isNotBlank() }
-            val phone = phonePref.takeIf { it.isNotBlank() }
-
-            val userIdentifier = uid ?: email ?: phone
+            val userIdentifier = getUserIdentifier(context, authManager)
 
             var jsonString: String? = null
 
             // 1. First try fetching from Cloud Firestore
-            if (!userIdentifier.isNullOrBlank()) {
+            if (userIdentifier.isNotBlank()) {
                 try {
                     val firestore = FirebaseFirestore.getInstance()
                     val doc = withTimeoutOrNull(6000) {

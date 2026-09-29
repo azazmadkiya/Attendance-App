@@ -521,11 +521,6 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
         if (cleanPhone.isNotBlank()) loggedInPhone.value = cleanPhone
         isEmailVerified.value = verified
 
-        // Auto recover data from Cloud if user reinstalled app and local database is empty
-        viewModelScope.launch {
-            com.attendance.app.azaz.util.CloudBackupManager.autoRecoverIfEmpty(getApplication(), repository, authManager)
-        }
-
         // Direct user to main dashboard on login
         activeScreen.value = ScreenState.MAIN_TABS
 

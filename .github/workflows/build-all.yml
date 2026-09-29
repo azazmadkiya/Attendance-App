@@ -66,7 +66,7 @@ jobs:
               -validity 10000
           fi
 
-      - name: Build Debug APK & Release AAB
+      - name: Build Debug APK & Debug AAB
         env:
           JAVA_TOOL_OPTIONS: "-Djava.awt.headless=true -Xmx2048m"
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m"
@@ -75,14 +75,14 @@ jobs:
           echo "=== Building Debug APK ==="
           ./gradlew :app:assembleDebug --stacktrace --no-daemon
 
-          echo "=== Building Release AAB ==="
-          ./gradlew :app:bundleRelease --stacktrace --no-daemon
+          echo "=== Building Debug AAB ==="
+          ./gradlew :app:bundleDebug --stacktrace --no-daemon
 
       - name: Verify APK and AAB Output
         run: |
           echo "=== Verifying Build Outputs ==="
           APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
-          AAB_PATH="app/build/outputs/bundle/release/app-release.aab"
+          AAB_PATH="app/build/outputs/bundle/debug/app-debug.aab"
 
           if [ ! -f "$APK_PATH" ]; then
             echo "ERROR: Debug APK not found at $APK_PATH!" >&2
@@ -90,7 +90,7 @@ jobs:
           fi
 
           if [ ! -f "$AAB_PATH" ]; then
-            echo "ERROR: Release AAB not found at $AAB_PATH!" >&2
+            echo "ERROR: Debug AAB not found at $AAB_PATH!" >&2
             exit 1
           fi
 
@@ -103,7 +103,7 @@ jobs:
           name: app-apk-and-aab-bundle
           path: |
             app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/bundle/release/app-release.aab
+            app/build/outputs/bundle/debug/app-debug.aab
           if-no-files-found: error
           retention-days: 14
 
@@ -119,10 +119,10 @@ jobs:
           fi
 
           APK_DEST="${TEMP_DIR}/${REPO_CLEAN}-debug-build-${GITHUB_RUN_NUMBER}.apk"
-          AAB_DEST="${TEMP_DIR}/${REPO_CLEAN}-release-build-${GITHUB_RUN_NUMBER}.aab"
+          AAB_DEST="${TEMP_DIR}/${REPO_CLEAN}-debug-bundle-${GITHUB_RUN_NUMBER}.aab"
 
           cp "app/build/outputs/apk/debug/app-debug.apk" "$APK_DEST"
-          cp "app/build/outputs/bundle/release/app-release.aab" "$AAB_DEST"
+          cp "app/build/outputs/bundle/debug/app-debug.aab" "$AAB_DEST"
 
           echo "apk_path=$APK_DEST" >> "$GITHUB_OUTPUT"
           echo "aab_path=$AAB_DEST" >> "$GITHUB_OUTPUT"

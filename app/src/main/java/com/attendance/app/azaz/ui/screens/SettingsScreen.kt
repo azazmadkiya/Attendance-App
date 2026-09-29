@@ -28,6 +28,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import com.attendance.app.azaz.viewmodel.HaazriViewModel
 import com.attendance.app.azaz.viewmodel.ScreenState
 
@@ -39,10 +43,11 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
     val companyName by viewModel.loggedInCompanyName.collectAsState()
     val userPhone by viewModel.loggedInPhone.collectAsState()
     val userEmail by viewModel.loggedInEmail.collectAsState()
+    val userPhotoUri by viewModel.loggedInUserPhoto.collectAsState()
     val firebaseUserInfo by viewModel.firebaseUserInfo.collectAsState()
     val appLockManager = remember { AppLockManager(context) }
-    val savedPin by appLockManager.pinFlow.collectAsState(initial = null)
-    val isBiometricEnabled by appLockManager.biometricFlow.collectAsState(initial = false)
+    val savedPin by appLockManager.pinFlow.collectAsState(initial = appLockManager.getSavedPinSync())
+    val isBiometricEnabled by appLockManager.biometricFlow.collectAsState(initial = appLockManager.isBiometricEnabledSync())
     val isAppLockEnabled = savedPin != null
 
     val isAmountsHidden by viewModel.isAmountsHidden.collectAsState()
@@ -179,7 +184,7 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
         val coroutineScope = rememberCoroutineScope()
         var tempEnabled by remember { mutableStateOf(isAppLockEnabled) }
         var tempBiometric by remember { mutableStateOf(isBiometricEnabled) }
-        var tempPin by remember { mutableStateOf(savedPin ?: "") }
+        var tempPin by remember { mutableStateOf(savedPin ?: "0000") }
 
         AlertDialog(
             onDismissRequest = { showAppLockDialog = false },
@@ -193,7 +198,10 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                         Text("Enable App Security", modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
                         Switch(
                             checked = tempEnabled,
-                            onCheckedChange = { tempEnabled = it }
+                            onCheckedChange = { 
+                                tempEnabled = it 
+                                if (it && tempPin.isBlank()) tempPin = "0000"
+                            }
                         )
                     }
 
@@ -201,8 +209,8 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                         Spacer(modifier = Modifier.height(12.dp))
                         OutlinedTextField(
                             value = tempPin,
-                            onValueChange = { if (it.length <= 4) tempPin = it },
-                            label = { Text("Set 4-Digit Security PIN") },
+                            onValueChange = { if (it.length <= 4 && it.all { c -> c.isDigit() }) tempPin = it },
+                            label = { Text("4-Digit Security PIN (Default: 0000)") },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .testTag("app_lock_pin_field"),
@@ -295,7 +303,7 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E3A8A)),
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { showEditProfileDialog = true }
+                .clickable { viewModel.activeScreen.value = ScreenState.USER_PROFILE }
                 .padding(bottom = 18.dp)
         ) {
             Row(
@@ -306,16 +314,28 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
             ) {
                 Box(
                     modifier = Modifier
-                        .size(50.dp)
-                        .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(12.dp)),
+                        .size(54.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.2f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = userName.take(1).uppercase(),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 22.sp,
-                        color = Color.White
-                    )
+                    if (!userPhotoUri.isNullOrBlank()) {
+                        AsyncImage(
+                            model = userPhotoUri,
+                            contentDescription = "Profile Photo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape)
+                        )
+                    } else {
+                        Text(
+                            text = userName.take(1).uppercase().ifBlank { "A" },
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 22.sp,
+                            color = Color.White
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.width(14.dp))
@@ -382,14 +402,7 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                     onClick = { showDataInfoDialog = true },
                     modifier = Modifier.testTag("your_data_row")
                 )
-                HorizontalDivider(color = Color(0xFFF1F5F9))
-                SettingsRow(
-                    icon = Icons.Outlined.Lock,
-                    title = "App Lock",
-                    subtitle = if (isAppLockEnabled) "Enabled (PIN: $savedPin)" else "Disabled (PIN / Security lock)",
-                    onClick = { showAppLockDialog = true },
-                    modifier = Modifier.testTag("app_lock_row")
-                )
+
                 HorizontalDivider(color = Color(0xFFF1F5F9))
                 SettingsRow(
                     icon = Icons.Outlined.Notifications,
@@ -428,6 +441,54 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                         colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = Color(0xFF253B80)),
                         modifier = Modifier.testTag("settings_hide_amounts_switch")
                     )
+                }
+
+                HorizontalDivider(color = Color(0xFFF1F5F9))
+
+                // App Security Lock Row (PIN & Fingerprint)
+                SettingsRow(
+                    icon = if (isAppLockEnabled) Icons.Outlined.Lock else Icons.Outlined.Fingerprint,
+                    title = "App Security Lock",
+                    subtitle = if (isAppLockEnabled) {
+                        "Active (PIN: ${savedPin ?: "0000"}) • Fingerprint ${if (isBiometricEnabled) "Enabled" else "Off"}"
+                    } else {
+                        "Optional • Set 4-digit PIN (default: 0000) & Fingerprint"
+                    },
+                    onClick = {
+                        viewModel.activeScreen.value = ScreenState.SET_PIN
+                    },
+                    modifier = Modifier.testTag("app_security_lock_row")
+                )
+
+                // Quick Lock App action if lock is enabled
+                if (isAppLockEnabled) {
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                appLockManager.lockApp()
+                                Toast.makeText(context, "App locked! Enter PIN to unlock.", Toast.LENGTH_SHORT).show()
+                            }
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .testTag("lock_app_now_row")
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .background(Color(0xFFFEF2F2), RoundedCornerShape(10.dp)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Outlined.Lock, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Lock App Now", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFFDC2626))
+                            Text("Immediately test your 4-digit PIN / Fingerprint lock", fontSize = 12.sp, color = Color(0xFF64748B))
+                        }
+                        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = Color(0xFF94A3B8))
+                    }
                 }
             }
         }

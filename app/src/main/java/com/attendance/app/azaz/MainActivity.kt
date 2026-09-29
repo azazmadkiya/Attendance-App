@@ -11,11 +11,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
@@ -101,32 +103,69 @@ class MainActivity : FragmentActivity() {
                     )
                 } else {
                     val isLoggedIn by viewModel.isLoggedIn.collectAsState()
-                    val savedPin by appLockManager.pinFlow.collectAsState(initial = "LOADING")
-                    val isUnlocked by appLockManager.isUnlocked.collectAsState()
+                    val isEmailVerified by viewModel.isEmailVerified.collectAsState()
+                    val activeScreen by viewModel.activeScreen.collectAsState()
 
-                    if (savedPin == "LOADING") {
-                        // Wait for DataStore to load
-                    } else if (isLoggedIn) {
-                        if (savedPin == null) {
-                            SetPinScreen(
-                                appLockManager = appLockManager,
-                                onPinSet = {}
-                            )
-                        } else if (!isUnlocked) {
-                            AppLockScreen(
-                                appLockManager = appLockManager,
-                                onUnlocked = {}
-                            )
-                        } else {
-                            HaazriApp(viewModel = viewModel)
-                        }
-                    } else {
+                    if (!isLoggedIn) {
                         LoginScreen(
                             viewModel = viewModel,
                             onLoginSuccess = {
+                                if (!appLockManager.hasPromptedAppLock()) {
+                                    viewModel.activeScreen.value = ScreenState.SET_PIN
+                                } else {
+                                    viewModel.activeScreen.value = ScreenState.MAIN_TABS
+                                }
+                            }
+                        )
+                    } else if (activeScreen == ScreenState.EMAIL_VERIFICATION) {
+                        EmailVerificationScreen(
+                            viewModel = viewModel,
+                            onVerified = {
+                                viewModel.isEmailVerified.value = true
+                                if (!appLockManager.hasPromptedAppLock()) {
+                                    viewModel.activeScreen.value = ScreenState.SET_PIN
+                                } else {
+                                    viewModel.activeScreen.value = ScreenState.MAIN_TABS
+                                }
+                            }
+                        )
+                    } else if (activeScreen == ScreenState.PROFILE_SETUP || activeScreen == ScreenState.USER_PROFILE) {
+                        UserProfileScreen(
+                            viewModel = viewModel,
+                            isInitialSetup = (activeScreen == ScreenState.PROFILE_SETUP),
+                            onComplete = {
+                                if (!appLockManager.hasPromptedAppLock()) {
+                                    viewModel.activeScreen.value = ScreenState.SET_PIN
+                                } else {
+                                    viewModel.activeScreen.value = ScreenState.MAIN_TABS
+                                }
+                            }
+                        )
+                    } else if (activeScreen == ScreenState.SET_PIN) {
+                        SetPinScreen(
+                            appLockManager = appLockManager,
+                            onPinSet = {
                                 viewModel.activeScreen.value = ScreenState.MAIN_TABS
                             }
                         )
+                    } else {
+                        val savedPin by appLockManager.pinFlow.collectAsState(initial = appLockManager.getSavedPinSync())
+                        val isUnlocked by appLockManager.isUnlocked.collectAsState()
+                        val isAppLockEnabled = !savedPin.isNullOrBlank()
+
+                        if (isAppLockEnabled && !isUnlocked) {
+                            AppLockScreen(
+                                appLockManager = appLockManager,
+                                onUnlocked = {
+                                    // Successfully unlocked
+                                }
+                            )
+                        } else {
+                            HaazriApp(
+                                viewModel = viewModel,
+                                appLockManager = appLockManager
+                            )
+                        }
                     }
                 }
             }
@@ -142,7 +181,10 @@ class MainActivity : FragmentActivity() {
 }
 
 @Composable
-fun HaazriApp(viewModel: HaazriViewModel) {
+fun HaazriApp(
+    viewModel: HaazriViewModel,
+    appLockManager: AppLockManager = AppLockManager(LocalContext.current)
+) {
     val activeTab by viewModel.activeTab.collectAsState()
     val activeScreen by viewModel.activeScreen.collectAsState()
 
@@ -158,6 +200,8 @@ fun HaazriApp(viewModel: HaazriViewModel) {
         ScreenState.TERMS_OF_SERVICE -> "Terms & Conditions"
         ScreenState.DATA_SAFETY -> "Data Safety & Security"
         ScreenState.ABOUT_APP -> "About & Legal"
+        ScreenState.SET_PIN -> "App Security Lock"
+        ScreenState.APP_LOCK -> "App Locked"
         else -> ""
     }
 
@@ -168,11 +212,13 @@ fun HaazriApp(viewModel: HaazriViewModel) {
 
     Scaffold(
         topBar = {
-            HaazriTopBar(
-                screenState = activeScreen,
-                titleText = subScreenTitle,
-                onBackClick = { viewModel.activeScreen.value = ScreenState.MAIN_TABS }
-            )
+            if (activeScreen != ScreenState.SET_PIN && activeScreen != ScreenState.APP_LOCK) {
+                HaazriTopBar(
+                    screenState = activeScreen,
+                    titleText = subScreenTitle,
+                    onBackClick = { viewModel.activeScreen.value = ScreenState.MAIN_TABS }
+                )
+            }
         },
         bottomBar = {
             if (activeScreen == ScreenState.MAIN_TABS) {
@@ -189,7 +235,7 @@ fun HaazriApp(viewModel: HaazriViewModel) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(if (activeScreen == ScreenState.SET_PIN || activeScreen == ScreenState.APP_LOCK) PaddingValues(0.dp) else innerPadding)
         ) {
             when (activeScreen) {
                 ScreenState.MAIN_TABS -> {
@@ -211,8 +257,23 @@ fun HaazriApp(viewModel: HaazriViewModel) {
                 ScreenState.CASHBOOK -> CashbookScreen(viewModel = viewModel)
                 ScreenState.WORKERS -> WorkersScreen(viewModel = viewModel, onWorkerClick = { viewModel.setSelectedWorkerId(it) })
                 ScreenState.SETTINGS -> SettingsScreen(viewModel = viewModel)
-                ScreenState.LOGIN -> LoginScreen(viewModel = viewModel, onLoginSuccess = { viewModel.setScreen(ScreenState.MAIN_TABS) })
-                ScreenState.APP_LOCK -> AppLockScreen(appLockManager = AppLockManager(LocalContext.current), onUnlocked = { viewModel.setScreen(ScreenState.MAIN_TABS) })
+                ScreenState.LOGIN -> LoginScreen(viewModel = viewModel, onLoginSuccess = {
+                    if (!appLockManager.hasPromptedAppLock()) {
+                        viewModel.setScreen(ScreenState.SET_PIN)
+                    } else {
+                        viewModel.setScreen(ScreenState.MAIN_TABS)
+                    }
+                })
+                ScreenState.EMAIL_VERIFICATION -> EmailVerificationScreen(viewModel = viewModel, onVerified = { viewModel.setScreen(ScreenState.MAIN_TABS) })
+                ScreenState.USER_PROFILE -> UserProfileScreen(viewModel = viewModel, isInitialSetup = false, onComplete = { viewModel.setScreen(ScreenState.SETTINGS) })
+                ScreenState.PROFILE_SETUP -> UserProfileScreen(viewModel = viewModel, isInitialSetup = true, onComplete = {
+                    if (!appLockManager.hasPromptedAppLock()) {
+                        viewModel.setScreen(ScreenState.SET_PIN)
+                    } else {
+                        viewModel.setScreen(ScreenState.MAIN_TABS)
+                    }
+                })
+                ScreenState.APP_LOCK -> AppLockScreen(appLockManager = appLockManager, onUnlocked = { viewModel.setScreen(ScreenState.MAIN_TABS) })
                 ScreenState.MONTHLY_REPORT -> MonthlyReportScreen(viewModel = viewModel)
                 ScreenState.BACKUP_RESTORE -> BackupRestoreScreen(viewModel = viewModel)
                 ScreenState.DATA_SAFETY -> DataSafetyScreen(viewModel = viewModel)
@@ -220,7 +281,7 @@ fun HaazriApp(viewModel: HaazriViewModel) {
                 ScreenState.TERMS_OF_SERVICE -> TermsOfServiceScreen(viewModel = viewModel)
                 ScreenState.PRIVACY_POLICY -> PrivacyPolicyScreen(viewModel = viewModel)
                 ScreenState.NOTIFICATIONS_SETUP -> NotificationsSetupScreen(viewModel = viewModel)
-                ScreenState.SET_PIN -> SetPinScreen(appLockManager = AppLockManager(LocalContext.current), onPinSet = { viewModel.setScreen(ScreenState.SETTINGS) })
+                ScreenState.SET_PIN -> PinSecuritySettingsScreen(appLockManager = appLockManager, onBack = { viewModel.setScreen(ScreenState.SETTINGS) })
                 ScreenState.SELECT_CONTACT -> SelectContactScreen(
                     viewModel = viewModel,
                     onContactPicked = { name, phone ->

@@ -699,14 +699,14 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "Export your entire database directly from SQLite into a portable JSON backup file.",
+                    text = "Export your entire database directly into a portable JSON backup file.",
                     fontSize = 12.sp,
                     color = Color(0xFF475569)
                 )
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // Action 1: Save Backup (Choose Path)
+                // Single Action: Create & Save Backup
                 Button(
                     onClick = {
                         val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
@@ -721,101 +721,7 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
                 ) {
                     Icon(Icons.Outlined.SaveAlt, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Save Backup to Device (Choose Folder)", fontWeight = FontWeight.Bold, color = Color.White)
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Action 2: Share Backup File via WhatsApp / Email / Drive
-                Button(
-                    onClick = {
-                        isOperating = true
-                        restoreStatusMessage = "Preparing backup to share..."
-                        coroutineScope.launch(Dispatchers.IO) {
-                            try {
-                                val jsonString = viewModel.getFullBackupJson()
-                                val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
-                                val fileName = "Haazri_Backup_$timeStamp.json"
-
-                                // Save file
-                                val backupsDir = File(context.filesDir, "backups").apply { if (!exists()) mkdirs() }
-                                val localFile = File(backupsDir, fileName)
-                                localFile.writeText(jsonString, Charsets.UTF_8)
-
-                                val cacheFile = File(context.cacheDir, fileName)
-                                cacheFile.writeText(jsonString, Charsets.UTF_8)
-
-                                withContext(Dispatchers.Main) {
-                                    isOperating = false
-                                    refreshLocalBackups()
-                                    try {
-                                        val fileUri: Uri = androidx.core.content.FileProvider.getUriForFile(
-                                            context,
-                                            "${context.packageName}.fileprovider",
-                                            cacheFile
-                                        )
-
-                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                            type = "application/json"
-                                            putExtra(Intent.EXTRA_STREAM, fileUri)
-                                            putExtra(Intent.EXTRA_SUBJECT, "Attendance App Backup ($timeStamp)")
-                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                        }
-                                        context.startActivity(Intent.createChooser(shareIntent, "Share Backup File"))
-                                    } catch (e: Exception) {
-                                        val textShareIntent = Intent(Intent.ACTION_SEND).apply {
-                                            type = "text/plain"
-                                            putExtra(Intent.EXTRA_TEXT, jsonString)
-                                            putExtra(Intent.EXTRA_SUBJECT, "Attendance App Backup ($timeStamp)")
-                                        }
-                                        context.startActivity(Intent.createChooser(textShareIntent, "Share Backup Data"))
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                withContext(Dispatchers.Main) {
-                                    isOperating = false
-                                    isSuccessStatus = false
-                                    restoreStatusMessage = "Failed to export: ${e.localizedMessage}"
-                                    Toast.makeText(context, "Export error: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
-                                }
-                            }
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = HaazriPrimary),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp)
-                        .testTag("btn_share_backup")
-                ) {
-                    Icon(Icons.Outlined.Share, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Share Backup File (WhatsApp / Drive)", fontWeight = FontWeight.Bold, color = Color.White)
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Copy Code
-                OutlinedButton(
-                    onClick = {
-                        coroutineScope.launch(Dispatchers.IO) {
-                            val jsonString = viewModel.getFullBackupJson()
-                            withContext(Dispatchers.Main) {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                val clip = ClipData.newPlainText("Attendance Backup JSON", jsonString)
-                                clipboard.setPrimaryClip(clip)
-                                Toast.makeText(context, "Backup JSON code copied to clipboard!", Toast.LENGTH_SHORT).show()
-                            }
-                        }
-                    },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("btn_copy_backup")
-                ) {
-                    Icon(Icons.Outlined.ContentCopy, contentDescription = null, tint = Color(0xFF1E3A8A), modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Copy Raw Backup Code", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color(0xFF1E3A8A))
+                    Text("Create & Save Backup File", fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
         }
@@ -1013,22 +919,6 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
                     Icon(Icons.Outlined.FolderOpen, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Select & Import JSON File", fontWeight = FontWeight.Bold, color = Color.White)
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Button: Paste JSON Text Code
-                OutlinedButton(
-                    onClick = { showPasteJsonDialog = true },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp)
-                        .testTag("btn_paste_json_code")
-                ) {
-                    Icon(Icons.Outlined.Code, contentDescription = null, tint = Color(0xFF475569), modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Paste Backup JSON Code", fontWeight = FontWeight.Bold, color = Color(0xFF475569))
                 }
             }
         }

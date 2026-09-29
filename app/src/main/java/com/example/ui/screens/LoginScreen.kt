@@ -39,6 +39,7 @@ import com.example.ui.theme.HaazriHeaderBlue
 import com.example.ui.theme.HaazriPrimary
 import com.example.util.AuthResult
 import com.example.viewmodel.HaazriViewModel
+import com.example.viewmodel.ScreenState
 import kotlinx.coroutines.launch
 
 @Composable
@@ -57,8 +58,8 @@ fun LoginScreen(
     }
     val coroutineScope = rememberCoroutineScope()
 
-    // Mode: Login vs Sign-Up
-    var isRegisterMode by remember { mutableStateOf(false) }
+    // Mode: Login vs Sign-Up (Default to Sign-Up on first app open)
+    var isRegisterMode by remember { mutableStateOf(true) }
 
     // Form fields
     var phoneInput by remember { mutableStateOf("") }
@@ -569,13 +570,14 @@ fun LoginScreen(
                                     isLoading = false
                                     when (result) {
                                         is AuthResult.Success -> {
-                                            Toast.makeText(context, "Account created & synced to Cloud!", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Account created! Let's setup your profile.", Toast.LENGTH_SHORT).show()
+                                            viewModel.activeScreen.value = ScreenState.PROFILE_SETUP
                                             onLoginSuccess()
                                         }
                                         is AuthResult.Error -> {
                                             errorMessage = result.message
                                         }
-                                        else -> {}
+                                        is AuthResult.Cancelled -> {}
                                     }
                                 }
                             } else {
@@ -603,7 +605,7 @@ fun LoginScreen(
                                         is AuthResult.Error -> {
                                             errorMessage = result.message
                                         }
-                                        else -> {}
+                                        is AuthResult.Cancelled -> {}
                                     }
                                 }
                             }
@@ -671,22 +673,7 @@ fun LoginScreen(
                         onClick = {
                             if (isLoading) return@OutlinedButton
                             errorMessage = null
-                            coroutineScope.launch {
-                                isLoading = true
-                                val result = viewModel.signInWithGoogle(activity)
-                                isLoading = false
-                                when (result) {
-                                    is AuthResult.Success -> {
-                                        Toast.makeText(context, "Welcome, ${viewModel.loggedInUserName.value}!", Toast.LENGTH_SHORT).show()
-                                        onLoginSuccess()
-                                    }
-                                    is AuthResult.Error -> {
-                                        // If credential manager / web auth fails (e.g. no google account on emulator), open email fallback dialog
-                                        showGoogleEmailDialog = true
-                                    }
-                                    else -> {}
-                                }
-                            }
+                            showGoogleEmailDialog = true
                         },
                         enabled = !isLoading,
                         modifier = Modifier
@@ -709,40 +696,6 @@ fun LoginScreen(
                             fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = Color(0xFF1E293B)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Offline / Local Login Button (Guaranteed to work instantly without internet or Firebase)
-                    Button(
-                        onClick = {
-                            val company = companyNameInput.ifBlank { "My Business" }
-                            val name = managerNameInput.ifBlank { "Local Supervisor" }
-                            val phone = phoneInput.filter { it.isDigit() }
-                            viewModel.handleOfflineLogin(company, name, phone)
-                            Toast.makeText(context, "Logged in successfully in Offline Mode!", Toast.LENGTH_SHORT).show()
-                            onLoginSuccess()
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("btn_offline_login"),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F172A))
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CloudOff,
-                            contentDescription = "Offline Login",
-                            tint = Color.White,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "Click to Offline Login (Local Mode)",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
                         )
                     }
                 }
@@ -784,7 +737,7 @@ fun LoginScreen(
                                             is AuthResult.Error -> {
                                                 errorMessage = result.message
                                             }
-                                            else -> {}
+                                            is AuthResult.Cancelled -> {}
                                         }
                                     }
                                 } else {
@@ -827,6 +780,64 @@ fun LoginScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
+        }
+
+        // Full-screen Loading Overlay with progress bar and status message
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.45f))
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                    ) {},
+                contentAlignment = Alignment.Center
+            ) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                    modifier = Modifier
+                        .padding(32.dp)
+                        .widthIn(max = 280.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(44.dp),
+                            color = HaazriPrimary,
+                            strokeWidth = 4.dp
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = if (isRegisterMode) "Creating Cloud Account..." else "Verifying Authentication...",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1E293B),
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp)
+                                .clip(RoundedCornerShape(2.dp)),
+                            color = HaazriPrimary,
+                            trackColor = Color(0xFFE2E8F0)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Please wait securely...",
+                            fontSize = 12.sp,
+                            color = Color(0xFF64748B),
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            }
         }
     }
 }

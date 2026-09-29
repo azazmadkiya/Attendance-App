@@ -80,12 +80,7 @@ fun AppLockScreen(
         }
     }
 
-    LaunchedEffect(isBiometricEnabled) {
-        if (isBiometricEnabled && !hasPrompted) {
-            hasPrompted = true
-            showBiometricPrompt()
-        }
-    }
+
 
     Box(
         modifier = Modifier

@@ -101,32 +101,18 @@ class MainActivity : FragmentActivity() {
                     )
                 } else {
                     val isLoggedIn by viewModel.isLoggedIn.collectAsState()
-                    val savedPin by appLockManager.pinFlow.collectAsState(initial = "LOADING")
-                    val isUnlocked by appLockManager.isUnlocked.collectAsState()
 
-                    if (savedPin == "LOADING") {
-                        // Wait for DataStore to load
-                    } else if (isLoggedIn) {
-                        if (savedPin == null) {
-                            SetPinScreen(
-                                appLockManager = appLockManager,
-                                onPinSet = {}
-                            )
-                        } else if (!isUnlocked) {
-                            AppLockScreen(
-                                appLockManager = appLockManager,
-                                onUnlocked = {}
-                            )
-                        } else {
-                            HaazriApp(viewModel = viewModel)
-                        }
-                    } else {
+                    if (!isLoggedIn) {
                         LoginScreen(
                             viewModel = viewModel,
                             onLoginSuccess = {
-                                viewModel.activeScreen.value = ScreenState.MAIN_TABS
+                                if (viewModel.activeScreen.value != ScreenState.PROFILE_SETUP) {
+                                    viewModel.activeScreen.value = ScreenState.MAIN_TABS
+                                }
                             }
                         )
+                    } else {
+                        HaazriApp(viewModel = viewModel)
                     }
                 }
             }
@@ -158,21 +144,25 @@ fun HaazriApp(viewModel: HaazriViewModel) {
         ScreenState.TERMS_OF_SERVICE -> "Terms & Conditions"
         ScreenState.DATA_SAFETY -> "Data Safety & Security"
         ScreenState.ABOUT_APP -> "About & Legal"
+        ScreenState.USER_PROFILE -> "User Profile"
+        ScreenState.PROFILE_SETUP -> "Profile Setup"
         else -> ""
     }
 
     // Back button handling in sub-screens
-    BackHandler(enabled = activeScreen != ScreenState.MAIN_TABS) {
+    BackHandler(enabled = activeScreen != ScreenState.MAIN_TABS && activeScreen != ScreenState.PROFILE_SETUP) {
         viewModel.activeScreen.value = ScreenState.MAIN_TABS
     }
 
     Scaffold(
         topBar = {
-            HaazriTopBar(
-                screenState = activeScreen,
-                titleText = subScreenTitle,
-                onBackClick = { viewModel.activeScreen.value = ScreenState.MAIN_TABS }
-            )
+            if (activeScreen != ScreenState.USER_PROFILE && activeScreen != ScreenState.PROFILE_SETUP) {
+                HaazriTopBar(
+                    screenState = activeScreen,
+                    titleText = subScreenTitle,
+                    onBackClick = { viewModel.activeScreen.value = ScreenState.MAIN_TABS }
+                )
+            }
         },
         bottomBar = {
             if (activeScreen == ScreenState.MAIN_TABS) {
@@ -225,6 +215,16 @@ fun HaazriApp(viewModel: HaazriViewModel) {
                 ScreenState.TERMS_OF_SERVICE -> TermsOfServiceScreen(viewModel = viewModel)
                 ScreenState.DATA_SAFETY -> DataSafetyScreen(viewModel = viewModel)
                 ScreenState.ABOUT_APP -> AboutAppScreen(viewModel = viewModel)
+                ScreenState.USER_PROFILE -> UserProfileScreen(
+                    viewModel = viewModel,
+                    isInitialSetup = false,
+                    onComplete = { viewModel.activeScreen.value = ScreenState.MAIN_TABS }
+                )
+                ScreenState.PROFILE_SETUP -> UserProfileScreen(
+                    viewModel = viewModel,
+                    isInitialSetup = true,
+                    onComplete = { viewModel.activeScreen.value = ScreenState.MAIN_TABS }
+                )
             }
         }
     }

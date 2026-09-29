@@ -50,11 +50,14 @@ jobs:
 
           if [ -n "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
             echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > ./release.keystore
+            echo "Decoded RELEASE_KEYSTORE_BASE64 secret into release.keystore"
           elif [ -f "./release.keystore.base64" ]; then
             base64 --decode ./release.keystore.base64 > ./release.keystore
+            echo "Decoded release.keystore.base64 file into release.keystore"
           elif [ -f "./release.keystore" ]; then
             echo "Existing release.keystore found."
           else
+            echo "Generating default release.keystore..."
             keytool -genkey -v \
               -keystore ./release.keystore \
               -storepass androidrelease \
@@ -65,46 +68,58 @@ jobs:
               -keysize 2048 \
               -validity 10000
           fi
+          cp release.keystore app/release.keystore || true
 
-      - name: Build Debug APK & Debug AAB
+      - name: Build Release & Debug APK & AAB
         env:
           JAVA_TOOL_OPTIONS: "-Djava.awt.headless=true -Xmx2048m"
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m"
         run: |
           chmod +x gradlew
-          echo "=== Building Debug APK ==="
-          ./gradlew :app:assembleDebug --stacktrace --no-daemon
+          echo "=== Building Release APK & AAB ==="
+          ./gradlew :app:assembleRelease :app:bundleRelease --stacktrace --no-daemon
 
-          echo "=== Building Debug AAB ==="
-          ./gradlew :app:bundleDebug --stacktrace --no-daemon
+          echo "=== Building Debug APK & AAB ==="
+          ./gradlew :app:assembleDebug :app:bundleDebug --stacktrace --no-daemon
 
       - name: Verify APK and AAB Output
         run: |
           echo "=== Verifying Build Outputs ==="
-          APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
-          AAB_PATH="app/build/outputs/bundle/debug/app-debug.aab"
+          if [ -f "app/build/outputs/apk/release/app-release.apk" ]; then
+            APK_PATH="app/build/outputs/apk/release/app-release.apk"
+          else
+            APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+          fi
+
+          if [ -f "app/build/outputs/bundle/release/app-release.aab" ]; then
+            AAB_PATH="app/build/outputs/bundle/release/app-release.aab"
+          else
+            AAB_PATH="app/build/outputs/bundle/debug/app-debug.aab"
+          fi
 
           if [ ! -f "$APK_PATH" ]; then
-            echo "ERROR: Debug APK not found at $APK_PATH!" >&2
+            echo "ERROR: APK not found!" >&2
             exit 1
           fi
 
           if [ ! -f "$AAB_PATH" ]; then
-            echo "ERROR: Debug AAB not found at $AAB_PATH!" >&2
+            echo "ERROR: AAB not found!" >&2
             exit 1
           fi
 
-          echo "APK Verified: $APK_PATH ($(stat -c%s "$APK_PATH" 2>/dev/null || stat -f%z "$APK_PATH") bytes)"
-          echo "AAB Verified: $AAB_PATH ($(stat -c%s "$AAB_PATH" 2>/dev/null || stat -f%z "$AAB_PATH") bytes)"
+          echo "APK Verified: $APK_PATH"
+          echo "AAB Verified: $AAB_PATH"
 
       - name: Upload Artifacts (APK & AAB)
         uses: actions/upload-artifact@v4
         with:
           name: app-apk-and-aab-bundle
           path: |
+            app/build/outputs/apk/release/app-release.apk
+            app/build/outputs/bundle/release/app-release.aab
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/bundle/debug/app-debug.aab
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
 
       - name: Prepare Release Assets
@@ -118,16 +133,25 @@ jobs:
             REPO_CLEAN="app"
           fi
 
-          APK_DEST="${TEMP_DIR}/${REPO_CLEAN}-debug-build-${GITHUB_RUN_NUMBER}.apk"
-          AAB_DEST="${TEMP_DIR}/${REPO_CLEAN}-debug-bundle-${GITHUB_RUN_NUMBER}.aab"
+          if [ -f "app/build/outputs/apk/release/app-release.apk" ]; then
+            cp "app/build/outputs/apk/release/app-release.apk" "${TEMP_DIR}/${REPO_CLEAN}-release-${GITHUB_RUN_NUMBER}.apk"
+          else
+            cp "app/build/outputs/apk/debug/app-debug.apk" "${TEMP_DIR}/${REPO_CLEAN}-debug-${GITHUB_RUN_NUMBER}.apk"
+          fi
 
-          cp "app/build/outputs/apk/debug/app-debug.apk" "$APK_DEST"
-          cp "app/build/outputs/bundle/debug/app-debug.aab" "$AAB_DEST"
+          if [ -f "app/build/outputs/bundle/release/app-release.aab" ]; then
+            cp "app/build/outputs/bundle/release/app-release.aab" "${TEMP_DIR}/${REPO_CLEAN}-release-${GITHUB_RUN_NUMBER}.aab"
+          else
+            cp "app/build/outputs/bundle/debug/app-debug.aab" "${TEMP_DIR}/${REPO_CLEAN}-debug-${GITHUB_RUN_NUMBER}.aab"
+          fi
 
-          echo "apk_path=$APK_DEST" >> "$GITHUB_OUTPUT"
-          echo "aab_path=$AAB_DEST" >> "$GITHUB_OUTPUT"
-          echo "apk_name=$(basename "$APK_DEST")" >> "$GITHUB_OUTPUT"
-          echo "aab_name=$(basename "$AAB_DEST")" >> "$GITHUB_OUTPUT"
+          APK_FILE=$(ls "${TEMP_DIR}"/*.apk | head -n 1)
+          AAB_FILE=$(ls "${TEMP_DIR}"/*.aab | head -n 1)
+
+          echo "apk_path=$APK_FILE" >> "$GITHUB_OUTPUT"
+          echo "aab_path=$AAB_FILE" >> "$GITHUB_OUTPUT"
+          echo "apk_name=$(basename "$APK_FILE")" >> "$GITHUB_OUTPUT"
+          echo "aab_name=$(basename "$AAB_FILE")" >> "$GITHUB_OUTPUT"
 
       - name: Publish Both APK and AAB to GitHub Releases
         id: create_release
@@ -139,14 +163,14 @@ jobs:
           AAB_PATH="${{ steps.prepare_assets.outputs.aab_path }}"
           
           RELEASE_TAG="apk-aab-build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
-          RELEASE_TITLE="App Build #${GITHUB_RUN_NUMBER} (APK & AAB)"
+          RELEASE_TITLE="App Build #${GITHUB_RUN_NUMBER} (APK & AAB Release)"
 
           NOTES=$(cat <<EOF
           ## Android App Build #${GITHUB_RUN_NUMBER} (Both APK & AAB) 📱📦
 
-          This release includes **both** file formats generated automatically:
-          - 📱 **Android App (APK):** `app-debug.apk` (Ready for direct installation & testing on your Android phone)
-          - 📦 **Android App Bundle (AAB):** `app-release.aab` (Ready for Google Play Console upload)
+          This release includes **both** file formats generated automatically by GitHub Actions:
+          - 📱 **Android App (APK):** Ready for direct installation & testing on your Android phone.
+          - 📦 **Android App Bundle (AAB):** Ready for Google Play Console upload.
 
           - **Build System:** GitHub Actions
           - **Commit:** ${GITHUB_SHA}

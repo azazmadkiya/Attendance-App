@@ -17,6 +17,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -39,6 +43,7 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
     val companyName by viewModel.loggedInCompanyName.collectAsState()
     val userPhone by viewModel.loggedInPhone.collectAsState()
     val userEmail by viewModel.loggedInEmail.collectAsState()
+    val userPhotoUri by viewModel.loggedInUserPhoto.collectAsState()
     val firebaseUserInfo by viewModel.firebaseUserInfo.collectAsState()
     val appLockManager = remember { AppLockManager(context) }
     val savedPin by appLockManager.pinFlow.collectAsState(initial = null)
@@ -295,7 +300,7 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E3A8A)),
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { showEditProfileDialog = true }
+                .clickable { viewModel.activeScreen.value = ScreenState.USER_PROFILE }
                 .padding(bottom = 18.dp)
         ) {
             Row(
@@ -306,16 +311,28 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
             ) {
                 Box(
                     modifier = Modifier
-                        .size(50.dp)
-                        .background(Color.White.copy(alpha = 0.2f), RoundedCornerShape(12.dp)),
+                        .size(54.dp)
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.2f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = userName.take(1).uppercase(),
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 22.sp,
-                        color = Color.White
-                    )
+                    if (!userPhotoUri.isNullOrBlank()) {
+                        AsyncImage(
+                            model = userPhotoUri,
+                            contentDescription = "User Profile Photo",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(CircleShape)
+                        )
+                    } else {
+                        Text(
+                            text = userName.take(1).uppercase(),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 22.sp,
+                            color = Color.White
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.width(14.dp))
@@ -383,14 +400,7 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                     modifier = Modifier.testTag("your_data_row")
                 )
                 HorizontalDivider(color = Color(0xFFF1F5F9))
-                SettingsRow(
-                    icon = Icons.Outlined.Lock,
-                    title = "App Lock",
-                    subtitle = if (isAppLockEnabled) "Enabled (PIN: $savedPin)" else "Disabled (PIN / Security lock)",
-                    onClick = { showAppLockDialog = true },
-                    modifier = Modifier.testTag("app_lock_row")
-                )
-                HorizontalDivider(color = Color(0xFFF1F5F9))
+
                 SettingsRow(
                     icon = Icons.Outlined.Notifications,
                     title = "Reminders & Notifications",

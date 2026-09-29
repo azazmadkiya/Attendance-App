@@ -1,22 +1,27 @@
 package com.attendance.app.azaz.viewmodel
 
 import android.app.Application
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.attendance.app.azaz.data.*
+import com.attendance.app.azaz.util.AuthenticationManager
+import com.attendance.app.azaz.util.AuthResult
 import com.attendance.app.azaz.util.BackupManager
 import com.attendance.app.azaz.util.DatabaseBackupManager
 import com.attendance.app.azaz.util.WageCalculator
 import com.attendance.app.azaz.util.WorkerPdfGenerator
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
 enum class ScreenState {
-    MAIN_TABS, HOME, ATTENDANCE, CASHBOOK, WORKERS, WORKER_DETAILS, ADD_WORKER, MONTHLY_REPORT, SETTINGS, BACKUP_RESTORE, DATA_SAFETY, LOGIN, APP_LOCK, ABOUT_APP, TERMS_OF_SERVICE, PRIVACY_POLICY, NOTIFICATIONS_SETUP, SET_PIN, SELECT_CONTACT
+    MAIN_TABS, HOME, ATTENDANCE, CASHBOOK, WORKERS, WORKER_DETAILS, ADD_WORKER, MONTHLY_REPORT, SETTINGS, BACKUP_RESTORE, DATA_SAFETY, LOGIN, APP_LOCK, ABOUT_APP, TERMS_OF_SERVICE, PRIVACY_POLICY, NOTIFICATIONS_SETUP, SET_PIN, SELECT_CONTACT, EMAIL_VERIFICATION, USER_PROFILE, PROFILE_SETUP
 }
 
 enum class AppTab {
@@ -41,6 +46,8 @@ data class MonthlySummary(
 class HaazriViewModel(application: Application) : AndroidViewModel(application) {
     private val database = HaazriDatabase.getDatabase(application)
     private val repository = HaazriRepository(database)
+    val authManager = AuthenticationManager(application)
+    private val prefs = application.getSharedPreferences("haazri_prefs", Context.MODE_PRIVATE)
 
     val workers: StateFlow<List<Worker>> = repository.allWorkers
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -54,7 +61,8 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
     val notificationSettings: StateFlow<NotificationSetting?> = repository.notificationSettings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val isLoggedIn = MutableStateFlow(true)
+    val isLoggedIn = MutableStateFlow(prefs.getBoolean("is_logged_in", false))
+    val isEmailVerified = MutableStateFlow(authManager.isEmailVerified())
     val activeScreen = MutableStateFlow(ScreenState.MAIN_TABS)
     val activeTab = MutableStateFlow(AppTab.ATTENDANCE)
 
@@ -71,11 +79,42 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
     val rollCallIndex = MutableStateFlow(0)
     val isAmountsHidden = MutableStateFlow(false)
 
-    val loggedInCompanyName = MutableStateFlow("My Company")
-    val loggedInUserName = MutableStateFlow("Admin")
-    val loggedInPhone = MutableStateFlow("+91 9876543210")
-    val loggedInEmail = MutableStateFlow("admin@haazri.app")
+    val loggedInCompanyName = MutableStateFlow(
+        prefs.getString("company_name", null)?.let {
+            if (it == "My Company" || it == "Madkiya Attendance") "Demo Company" else it
+        } ?: "Demo Company"
+    )
+    val loggedInUserName = MutableStateFlow(
+        prefs.getString("user_name", null)?.let {
+            if (it == "Admin" || it == "Azaz Madkiya") "Demo" else it
+        } ?: "Demo"
+    )
+    val loggedInPhone = MutableStateFlow(
+        prefs.getString("user_phone", null)?.let {
+            if (it.contains("9876543210")) "9100000000" else it
+        } ?: "9100000000"
+    )
+    val loggedInEmail = MutableStateFlow(authManager.getCurrentUserInfo()?.email ?: prefs.getString("user_email", "admin@haazri.app") ?: "admin@haazri.app")
+    val loggedInUserPhoto = MutableStateFlow(prefs.getString("user_photo_uri", null))
     val firebaseUserInfo = MutableStateFlow("Connected")
+
+    init {
+        val currentName = prefs.getString("user_name", null)
+        val currentCompany = prefs.getString("company_name", null)
+        val currentPhone = prefs.getString("user_phone", null)
+        if (currentName == null || currentName == "Admin" || currentName == "Azaz Madkiya") {
+            prefs.edit().putString("user_name", "Demo").apply()
+            loggedInUserName.value = "Demo"
+        }
+        if (currentCompany == null || currentCompany == "My Company" || currentCompany == "Madkiya Attendance") {
+            prefs.edit().putString("company_name", "Demo Company").apply()
+            loggedInCompanyName.value = "Demo Company"
+        }
+        if (currentPhone == null || currentPhone.contains("9876543210")) {
+            prefs.edit().putString("user_phone", "9100000000").apply()
+            loggedInPhone.value = "9100000000"
+        }
+    }
 
     val isAutoBackupEnabled = MutableStateFlow(true)
     val lastBackupTime = MutableStateFlow(System.currentTimeMillis())
@@ -305,11 +344,25 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun restoreBackupData(jsonString: String, clearExisting: Boolean, onComplete: (Boolean, String?) -> Unit) {
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             try {
-                onComplete(true, null)
+                val backupData = BackupManager.importFromJson(jsonString)
+                repository.restoreBackupData(
+                    workers = backupData.workers,
+                    attendanceRecords = backupData.attendanceRecords,
+                    cashbookEntries = backupData.cashbookEntries,
+                    notificationSetting = backupData.notificationSetting,
+                    clearExisting = clearExisting
+                )
+                withContext(Dispatchers.Main) {
+                    val summary = "Successfully restored ${backupData.workers.size} workers and ${backupData.attendanceRecords.size} attendance records!"
+                    onComplete(true, summary)
+                }
             } catch (e: Exception) {
-                onComplete(false, e.localizedMessage)
+                withContext(Dispatchers.Main) {
+                    val errMessage = "Restore failed: ${e.localizedMessage ?: "Invalid file or format"}"
+                    onComplete(false, errMessage)
+                }
             }
         }
     }
@@ -362,83 +415,192 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
         onComplete(true, "Backup completed successfully")
     }
 
-    fun logout() {
-        isLoggedIn.value = false
-        activeScreen.value = ScreenState.LOGIN
+    fun updateUserPhoto(uri: String?) {
+        prefs.edit().putString("user_photo_uri", uri).apply()
+        loggedInUserPhoto.value = uri
     }
 
-    suspend fun loginUser(phoneOrEmail: String, passwordOrPin: String): Result<Unit> {
-        isLoggedIn.value = true
-        activeScreen.value = ScreenState.MAIN_TABS
-        return Result.success(Unit)
-    }
-
-    fun loginUser(phoneOrEmail: String, passwordOrPin: String, onResult: (Boolean, String?) -> Unit) {
-        isLoggedIn.value = true
-        activeScreen.value = ScreenState.MAIN_TABS
-        onResult(true, null)
-    }
-
-    suspend fun registerUser(name: String, company: String, email: String, passwordOrPin: String, phone: String): Result<Unit> {
-        loggedInCompanyName.value = company
+    fun updateUserDisplayName(name: String) {
+        prefs.edit().putString("user_name", name).apply()
         loggedInUserName.value = name
-        loggedInPhone.value = phone
-        loggedInEmail.value = email
-        isLoggedIn.value = true
-        activeScreen.value = ScreenState.MAIN_TABS
-        return Result.success(Unit)
-    }
-
-    fun registerUser(name: String, company: String, email: String, passwordOrPin: String, phone: String, onResult: (Boolean, String?) -> Unit) {
-        loggedInCompanyName.value = company
-        loggedInUserName.value = name
-        loggedInPhone.value = phone
-        loggedInEmail.value = email
-        isLoggedIn.value = true
-        activeScreen.value = ScreenState.MAIN_TABS
-        onResult(true, null)
-    }
-
-    fun registerUser(company: String, email: String, passwordOrPin: String, phone: String, onResult: (Boolean, String?) -> Unit) {
-        registerUser("Admin", company, email, passwordOrPin, phone, onResult)
-    }
-
-    suspend fun registerUser(company: String, email: String, passwordOrPin: String, phone: String): Result<Unit> {
-        return registerUser("Admin", company, email, passwordOrPin, phone)
-    }
-
-    suspend fun signInWithGoogle(activity: android.app.Activity?): Result<Unit> {
-        isLoggedIn.value = true
-        activeScreen.value = ScreenState.MAIN_TABS
-        return Result.success(Unit)
-    }
-
-    fun signInWithGoogle(activity: android.app.Activity?, onResult: (Boolean, String?) -> Unit) {
-        isLoggedIn.value = true
-        activeScreen.value = ScreenState.MAIN_TABS
-        onResult(true, null)
-    }
-
-    suspend fun firebaseSignInWithEmail(email: String, pass: String): Result<Unit> {
-        return loginUser(email, pass)
-    }
-
-    fun firebaseSignInWithEmail(email: String, pass: String, onResult: (Boolean, String?) -> Unit) {
-        loginUser(email, pass, onResult)
-    }
-
-    suspend fun sendPasswordResetEmail(email: String): Result<Unit> {
-        return Result.success(Unit)
-    }
-
-    fun sendPasswordResetEmail(email: String, onResult: (Boolean, String?) -> Unit) {
-        onResult(true, null)
     }
 
     fun updateUserProfile(name: String, company: String, phone: String) {
+        prefs.edit()
+            .putString("user_name", name)
+            .putString("company_name", company)
+            .putString("user_phone", phone)
+            .apply()
         loggedInUserName.value = name
         loggedInCompanyName.value = company
         loggedInPhone.value = phone
+    }
+
+    suspend fun checkEmailVerificationStatus(): Boolean {
+        val verified = authManager.reloadUserAndCheckEmailVerified()
+        isEmailVerified.value = verified
+        if (verified) {
+            isLoggedIn.value = true
+            prefs.edit().putBoolean("is_logged_in", true).apply()
+        }
+        return verified
+    }
+
+    fun verifyEmailInstantly() {
+        isEmailVerified.value = true
+        isLoggedIn.value = true
+        prefs.edit()
+            .putBoolean("is_logged_in", true)
+            .putBoolean("is_email_verified", true)
+            .apply()
+        activeScreen.value = ScreenState.MAIN_TABS
+    }
+
+    suspend fun sendVerificationEmail(): Result<Unit> {
+        return authManager.sendEmailVerification()
+    }
+
+    fun logout() {
+        viewModelScope.launch {
+            authManager.signOut()
+            prefs.edit().putBoolean("is_logged_in", false).apply()
+            isLoggedIn.value = false
+            isEmailVerified.value = false
+            activeScreen.value = ScreenState.LOGIN
+        }
+    }
+
+    suspend fun registerUser(
+        company: String,
+        name: String,
+        phone: String,
+        passwordOrPin: String,
+        email: String = ""
+    ): AuthResult {
+        val result = authManager.registerUserInFirebase(
+            company = company,
+            name = name,
+            phone = phone,
+            passwordOrPin = passwordOrPin,
+            email = email
+        )
+        if (result is AuthResult.Error) {
+            return result
+        }
+
+        val finalName = name.trim().ifBlank { "Demo" }
+        val finalCompany = company.trim().ifBlank { "Demo Company" }
+        val cleanPhone = phone.filter { it.isDigit() }.ifBlank { "9100000000" }
+        val finalEmail = if (email.isNotBlank()) email.trim() else "${cleanPhone}@attendanceapp.com"
+
+        prefs.edit()
+            .putBoolean("is_logged_in", true)
+            .putString("company_name", finalCompany)
+            .putString("user_name", finalName)
+            .putString("user_phone", cleanPhone)
+            .putString("user_email", finalEmail)
+            .apply()
+
+        isLoggedIn.value = true
+        loggedInCompanyName.value = finalCompany
+        loggedInUserName.value = finalName
+        loggedInPhone.value = cleanPhone
+        loggedInEmail.value = finalEmail
+
+        val verified = authManager.isEmailVerified()
+        isEmailVerified.value = verified
+
+        // Direct user to main dashboard on registration
+        activeScreen.value = ScreenState.MAIN_TABS
+
+        return result
+    }
+
+    suspend fun loginUser(phoneOrEmail: String, passwordOrPin: String): AuthResult {
+        val result = authManager.loginUserInFirebase(phoneOrEmail, passwordOrPin)
+        if (result !is AuthResult.Success) {
+            return result
+        }
+
+        val user = result.user ?: authManager.getCurrentUser()
+        val profile = result.profile
+        val email = profile?.email ?: user?.email ?: phoneOrEmail.trim()
+        val name = profile?.managerName ?: user?.displayName ?: "Demo"
+        val company = profile?.companyName ?: "Demo Company"
+        val cleanPhone = profile?.phone?.ifBlank { phoneOrEmail.filter { it.isDigit() } }?.ifBlank { "9100000000" } ?: phoneOrEmail.filter { it.isDigit() }.ifBlank { "9100000000" }
+        val verified = authManager.isEmailVerified()
+
+        prefs.edit()
+            .putBoolean("is_logged_in", true)
+            .putString("user_email", email)
+            .putString("user_name", name)
+            .putString("company_name", company)
+            .putString("user_phone", cleanPhone)
+            .apply()
+
+        isLoggedIn.value = true
+        loggedInEmail.value = email
+        loggedInUserName.value = name
+        loggedInCompanyName.value = company
+        if (cleanPhone.isNotBlank()) loggedInPhone.value = cleanPhone
+        isEmailVerified.value = verified
+
+        // Direct user to main dashboard on login
+        activeScreen.value = ScreenState.MAIN_TABS
+
+        return result
+    }
+
+    suspend fun signInWithGoogle(activity: android.app.Activity?): AuthResult {
+        val result = if (activity != null) authManager.signInWithGoogle(activity) else AuthResult.Error("No activity context available")
+        if (result is AuthResult.Success) {
+            val user = result.user ?: authManager.getCurrentUser()
+            val profile = result.profile
+            val name = profile?.managerName ?: user?.displayName ?: "Demo"
+            val email = profile?.email ?: user?.email ?: "azazmadkiya@gmail.com"
+            val company = profile?.companyName ?: "Demo Company"
+            val phone = profile?.phone ?: "9100000000"
+
+            prefs.edit()
+                .putBoolean("is_logged_in", true)
+                .putString("user_email", email)
+                .putString("user_name", name)
+                .putString("company_name", company)
+                .putString("user_phone", phone)
+                .apply()
+
+            isLoggedIn.value = true
+            isEmailVerified.value = true
+            loggedInEmail.value = email
+            loggedInUserName.value = name
+            loggedInCompanyName.value = company
+            if (phone.isNotBlank()) loggedInPhone.value = phone
+            activeScreen.value = ScreenState.MAIN_TABS
+        }
+        return result
+    }
+
+    fun signInWithGoogle(activity: android.app.Activity?, onResult: (Boolean, String?) -> Unit) {
+        viewModelScope.launch {
+            val res = signInWithGoogle(activity)
+            when (res) {
+                is AuthResult.Success -> onResult(true, null)
+                is AuthResult.Error -> onResult(false, res.message)
+                is AuthResult.Cancelled -> onResult(false, "Cancelled")
+            }
+        }
+    }
+
+    suspend fun sendPasswordResetEmail(email: String): Result<Unit> {
+        val res = authManager.sendPasswordResetEmail(email)
+        return if (res.isSuccess) Result.success(Unit) else Result.failure(res.exceptionOrNull() ?: Exception("Failed to send reset email"))
+    }
+
+    fun sendPasswordResetEmail(email: String, onResult: (Boolean, String?) -> Unit) {
+        viewModelScope.launch {
+            val res = sendPasswordResetEmail(email)
+            onResult(res.isSuccess, res.exceptionOrNull()?.message)
+        }
     }
 
     fun maskAmount(amount: Double): String {

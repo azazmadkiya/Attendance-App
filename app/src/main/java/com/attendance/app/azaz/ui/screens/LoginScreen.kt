@@ -237,6 +237,30 @@ fun LoginScreen(
                                         modifier = Modifier.weight(1f)
                                     )
                                 }
+                                if (errorMessage!!.contains("Sign-Up", ignoreCase = true) ||
+                                    errorMessage!!.contains("No account found", ignoreCase = true)
+                                ) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Button(
+                                        onClick = {
+                                            isRegisterMode = true
+                                            errorMessage = null
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = HaazriPrimary),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(34.dp)
+                                    ) {
+                                        Text(
+                                            text = "Create Account Now (Switch to Sign-Up)",
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                    }
+                                }
                                 if (errorMessage!!.contains("device Settings", ignoreCase = true) ||
                                     errorMessage!!.contains("Google account", ignoreCase = true)
                                 ) {
@@ -524,7 +548,58 @@ fun LoginScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    // Demo Account Auto-Fill Helper (Fast login for testing)
+                    if (!isRegisterMode) {
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            color = Color(0xFFF0FDF4),
+                            border = BorderStroke(1.dp, Color(0xFFBBF7D0))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        phoneInput = "9100000000"
+                                        passwordInput = "123456"
+                                        errorMessage = null
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    tint = Color(0xFF16A34A),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Quick Demo Login: 9100000000 / 123456",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF15803D)
+                                    )
+                                    Text(
+                                        text = "Tap to auto-fill demo credentials instantly",
+                                        fontSize = 10.sp,
+                                        color = Color(0xFF166534)
+                                    )
+                                }
+                                Text(
+                                    text = "Auto-fill",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF15803D)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
 
                     // Primary Action Button (Sign Up / Login)
                     Button(
@@ -546,12 +621,12 @@ fun LoginScreen(
                                     errorMessage = "Please enter a valid 10-digit mobile number"
                                     return@Button
                                 }
-                                if (passwordInput.length < 8 || !passwordInput.any { it.isDigit() } || !passwordInput.any { it.isUpperCase() }) {
-                                    errorMessage = "Password must be at least 8 characters, with 1 uppercase letter and 1 number"
+                                if (passwordInput.length < 6) {
+                                    errorMessage = "Password must be at least 6 characters"
                                     return@Button
                                 }
                                 if (emailInput.isNotBlank() && !emailInput.contains("@")) {
-                                    errorMessage = "Please enter a valid email address"
+                                    errorMessage = "Please enter a valid email address or leave it blank"
                                     return@Button
                                 }
 
@@ -567,7 +642,11 @@ fun LoginScreen(
                                     isLoading = false
                                     when (result) {
                                         is AuthResult.Success -> {
-                                            Toast.makeText(context, "Account created & synced to Cloud!", Toast.LENGTH_SHORT).show()
+                                            if (emailInput.isNotBlank() && emailInput.contains("@")) {
+                                                Toast.makeText(context, "Account created! Verification link sent to ${emailInput.trim()}", Toast.LENGTH_LONG).show()
+                                            } else {
+                                                Toast.makeText(context, "Account created successfully! Welcome to Haazri.", Toast.LENGTH_SHORT).show()
+                                            }
                                             onLoginSuccess()
                                         }
                                         is AuthResult.Error -> {

@@ -23,7 +23,6 @@ import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -48,9 +47,9 @@ import com.attendance.app.azaz.util.AppLockManager
 import kotlinx.coroutines.launch
 
 @Composable
-fun SetPinScreen(
+fun PinSecuritySettingsScreen(
     appLockManager: AppLockManager,
-    onPinSet: () -> Unit
+    onBack: () -> Unit
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -59,26 +58,19 @@ fun SetPinScreen(
     val canUseBiometrics = remember { appLockManager.canAuthenticateWithBiometrics() }
 
     var isLockEnabled by remember {
-        mutableStateOf(appLockManager.getSavedPinSync() != null || !appLockManager.hasPromptedAppLock())
+        mutableStateOf(appLockManager.getSavedPinSync() != null)
     }
     var pinInput by remember {
-        mutableStateOf(appLockManager.getSavedPinSync() ?: "0000") // Default PIN 0000 as requested
+        mutableStateOf(appLockManager.getSavedPinSync() ?: "0000") // Default PIN 0000
     }
     var isBiometricEnabled by remember {
-        mutableStateOf(
-            if (appLockManager.hasPromptedAppLock()) appLockManager.isBiometricEnabledSync()
-            else canUseBiometrics
-        )
+        mutableStateOf(appLockManager.isBiometricEnabledSync())
     }
     var showPinText by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    // Intercept back button to skip or confirm safely
     BackHandler {
-        coroutineScope.launch {
-            appLockManager.setPromptedAppLock(true)
-            onPinSet()
-        }
+        onBack()
     }
 
     Box(
@@ -104,12 +96,7 @@ fun SetPinScreen(
                     .padding(horizontal = 16.dp, vertical = 20.dp)
             ) {
                 IconButton(
-                    onClick = {
-                        coroutineScope.launch {
-                            appLockManager.setPromptedAppLock(true)
-                            onPinSet()
-                        }
-                    },
+                    onClick = onBack,
                     modifier = Modifier.align(Alignment.TopStart)
                 ) {
                     Icon(
@@ -143,7 +130,7 @@ fun SetPinScreen(
                     Spacer(modifier = Modifier.height(14.dp))
 
                     Text(
-                        text = "App Lock Protection",
+                        text = "App Security PIN",
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
@@ -153,7 +140,7 @@ fun SetPinScreen(
                     Spacer(modifier = Modifier.height(6.dp))
 
                     Text(
-                        text = "Secure your worker attendance and cashbook records (Optional)",
+                        text = "Manage 4-digit PIN (Default is 0000) & Fingerprint",
                         fontSize = 13.sp,
                         color = Color.White.copy(alpha = 0.85f),
                         textAlign = TextAlign.Center
@@ -197,13 +184,13 @@ fun SetPinScreen(
 
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Enable App Lock",
+                                text = "Enable App Lock Security",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 16.sp,
                                 color = Color(0xFF1E293B)
                             )
                             Text(
-                                text = "Lock app when closed or in background",
+                                text = "Require PIN or Fingerprint when opening app",
                                 fontSize = 12.sp,
                                 color = Color(0xFF64748B)
                             )
@@ -228,14 +215,14 @@ fun SetPinScreen(
 
                             // 4-Digit PIN Section
                             Text(
-                                text = "4-Digit Security PIN",
+                                text = "4-Digit Numeric PIN",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
                                 color = Color(0xFF334155)
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "Default PIN is 0000. You can keep it or type your own 4 digits.",
+                                text = "Default PIN is 0000. You can keep it or enter your own 4 digits.",
                                 fontSize = 12.sp,
                                 color = Color(0xFF64748B)
                             )
@@ -309,7 +296,7 @@ fun SetPinScreen(
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            text = "Set to Default (0000)",
+                                            text = "Reset to Default (0000)",
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = HaazriPrimary
@@ -352,7 +339,7 @@ fun SetPinScreen(
                                         color = Color(0xFF1E293B)
                                     )
                                     Text(
-                                        text = if (canUseBiometrics) "Unlock quickly with sensor without typing PIN" else "Biometric sensor not available on this device",
+                                        text = if (canUseBiometrics) "Unlock quickly with biometric sensor" else "Biometric sensor not available on this device",
                                         fontSize = 12.sp,
                                         color = if (canUseBiometrics) Color(0xFF64748B) else Color(0xFF94A3B8)
                                     )
@@ -370,7 +357,7 @@ fun SetPinScreen(
 
                     Spacer(modifier = Modifier.height(24.dp))
 
-                    // Action Buttons
+                    // Action Button
                     Button(
                         onClick = {
                             if (isLockEnabled) {
@@ -380,26 +367,25 @@ fun SetPinScreen(
                                     return@Button
                                 }
                                 coroutineScope.launch {
-                                    appLockManager.enableDefaultLock(
-                                        pin = finalPin,
-                                        biometric = isBiometricEnabled && canUseBiometrics
-                                    )
-                                    Toast.makeText(context, "App lock enabled! PIN is $finalPin", Toast.LENGTH_LONG).show()
-                                    onPinSet()
+                                    appLockManager.setPin(finalPin)
+                                    appLockManager.setBiometricEnabled(isBiometricEnabled && canUseBiometrics)
+                                    appLockManager.setPromptedAppLock(true)
+                                    Toast.makeText(context, "App security PIN saved successfully ($finalPin)", Toast.LENGTH_LONG).show()
+                                    onBack()
                                 }
                             } else {
                                 coroutineScope.launch {
                                     appLockManager.clearLock()
                                     appLockManager.setPromptedAppLock(true)
-                                    Toast.makeText(context, "App lock skipped. You can enable it in Settings anytime.", Toast.LENGTH_SHORT).show()
-                                    onPinSet()
+                                    Toast.makeText(context, "App security lock disabled", Toast.LENGTH_SHORT).show()
+                                    onBack()
                                 }
                             }
                         },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(50.dp)
-                            .testTag("btn_save_app_lock"),
+                            .testTag("btn_save_pin_security"),
                         shape = RoundedCornerShape(14.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = HaazriPrimary)
                     ) {
@@ -411,35 +397,10 @@ fun SetPinScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (isLockEnabled) "Save & Enable App Lock" else "Continue without Lock",
+                            text = if (isLockEnabled) "Save Security PIN" else "Disable App Lock",
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
                             fontSize = 15.sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    OutlinedButton(
-                        onClick = {
-                            coroutineScope.launch {
-                                appLockManager.setPromptedAppLock(true)
-                                Toast.makeText(context, "Skipped. You can enable App Lock anytime in Settings.", Toast.LENGTH_SHORT).show()
-                                onPinSet()
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(46.dp)
-                            .testTag("btn_skip_app_lock"),
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, Color(0xFFCBD5E1))
-                    ) {
-                        Text(
-                            text = "Skip for Now (Enter Dashboard)",
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF64748B),
-                            fontSize = 13.sp
                         )
                     }
                 }
@@ -466,7 +427,7 @@ fun SetPinScreen(
                     )
                     Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "You can change your PIN, reset to 0000, or toggle fingerprint lock at any time in the Settings tab under 'App Security Lock'.",
+                        text = "When App Lock is active, you will be prompted for your 4-digit PIN (default 0000) or fingerprint every time you open or resume the app.",
                         fontSize = 12.sp,
                         color = Color(0xFF475569),
                         lineHeight = 16.sp

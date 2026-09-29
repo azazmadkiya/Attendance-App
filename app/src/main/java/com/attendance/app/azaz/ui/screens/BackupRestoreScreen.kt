@@ -523,6 +523,123 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
 
         Spacer(modifier = Modifier.height(12.dp))
 
+        // Cloud Protection & Auto-Recovery Banner Card (App Uninstall & Device Transfer Safety)
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFEFF6FF)),
+            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBFDBFE)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFDBEAFE)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.CloudDone,
+                            contentDescription = "Cloud Recovery",
+                            tint = Color(0xFF1D4ED8),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Cloud Protection & Auto-Recovery",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF1E3A8A)
+                        )
+                        Text(
+                            text = "Data safe on accidental app uninstall",
+                            fontSize = 12.sp,
+                            color = Color(0xFF2563EB),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = "If you accidentally uninstall the app or switch to a new phone, simply reinstall the app and log in with your Email/Mobile number. All your staff, attendance logs, and cashbook entries will be automatically recovered!",
+                    fontSize = 12.sp,
+                    color = Color(0xFF1E293B),
+                    lineHeight = 17.sp
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                isOperating = true
+                                restoreStatusMessage = "Saving backup to Cloud..."
+                                val res = viewModel.saveBackupToCloudNow()
+                                isOperating = false
+                                if (res.isSuccess) {
+                                    isSuccessStatus = true
+                                    restoreStatusMessage = res.getOrNull() ?: "Cloud Backup Successful!"
+                                    Toast.makeText(context, "Cloud Backup Saved!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    isSuccessStatus = false
+                                    restoreStatusMessage = res.exceptionOrNull()?.message ?: "Cloud Backup Failed"
+                                    Toast.makeText(context, res.exceptionOrNull()?.message ?: "Cloud Backup Failed", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1D4ED8)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f).height(42.dp)
+                    ) {
+                        Icon(Icons.Outlined.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Backup to Cloud", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            coroutineScope.launch {
+                                isOperating = true
+                                restoreStatusMessage = "Fetching backup from Cloud..."
+                                val res = viewModel.recoverDataFromCloudNow(isOverwrite = true)
+                                isOperating = false
+                                if (res.isSuccess) {
+                                    isSuccessStatus = true
+                                    restoreStatusMessage = res.getOrNull() ?: "Data Recovered Successfully!"
+                                    Toast.makeText(context, "Data Recovered Successfully!", Toast.LENGTH_LONG).show()
+                                } else {
+                                    isSuccessStatus = false
+                                    restoreStatusMessage = res.exceptionOrNull()?.message ?: "Cloud Recovery Failed"
+                                    Toast.makeText(context, res.exceptionOrNull()?.message ?: "Cloud Recovery Failed", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(10.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1D4ED8)),
+                        modifier = Modifier.weight(1f).height(42.dp)
+                    ) {
+                        Icon(Icons.Outlined.CloudDownload, contentDescription = null, tint = Color(0xFF1D4ED8), modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Recover Data", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1D4ED8))
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
         // 100% Private On-Device Data Banner
         Card(
             shape = RoundedCornerShape(16.dp),

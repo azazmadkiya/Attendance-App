@@ -108,16 +108,15 @@ fun AttendanceScreen(viewModel: HaazriViewModel) {
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF7F5EE)),
+            .background(Color(0xFFFAF7F2)),
         contentPadding = PaddingValues(bottom = 120.dp)
     ) {
         item {
-            // Date Selector Bar
+            // Date Selector Bar matching reference image 6.jpg
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.White)
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -125,12 +124,12 @@ fun AttendanceScreen(viewModel: HaazriViewModel) {
                     onClick = { viewModel.changeDateByDays(-1) },
                     modifier = Modifier.testTag("prev_date_btn")
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous Day", tint = Color.DarkGray)
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Previous Day", tint = Color(0xFF1E293B))
                 }
 
                 Surface(
-                    shape = RoundedCornerShape(20.dp),
-                    color = Color(0xFFF1F5F9),
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color(0xFFEFF6FF),
                     modifier = Modifier.clickable {
                         // Open Android DatePicker
                         val cal = Calendar.getInstance()
@@ -155,9 +154,9 @@ fun AttendanceScreen(viewModel: HaazriViewModel) {
                     ) {
                         Icon(Icons.Default.CalendarToday, contentDescription = null, tint = Color(0xFF1E3A8A), modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(displayDateStr, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF1E293B))
+                        Text(displayDateStr, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = Color(0xFF1E293B))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color.Gray)
+                        Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = Color(0xFF64748B))
                     }
                 }
 
@@ -165,77 +164,113 @@ fun AttendanceScreen(viewModel: HaazriViewModel) {
                     onClick = { viewModel.changeDateByDays(1) },
                     modifier = Modifier.testTag("next_date_btn")
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next Day", tint = Color.DarkGray)
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Next Day", tint = Color(0xFF1E293B))
                 }
             }
-
-            HorizontalDivider(color = Color(0xFFE2E8F0))
         }
 
         item {
-            // Search & Filter Row
-            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            // Search & Filter Row matching reference image 6.jpg
+            Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search by name...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+                    placeholder = { Text("Search by name...", color = Color(0xFF64748B), fontSize = 15.sp) },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = Color(0xFF334155)) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                        focusedBorderColor = Color(0xFF334155),
+                        unfocusedBorderColor = Color(0xFF475569)
+                    )
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Custom Rectangular Filter Pills matching reference image 6.jpg
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.horizontalScroll(rememberScrollState())
                 ) {
-                    listOf("All", "Present", "Absent", "Half", "Off", "Not Marked").forEach { filter ->
-                        FilterChip(
-                            selected = statusFilter == filter,
-                            onClick = { statusFilter = filter },
-                            label = { Text(filter) }
-                        )
+                    listOf("All", "Present", "Absent", "Half", "Off").forEach { filter ->
+                        val isSelected = statusFilter == filter
+                        val isAll = filter == "All"
+                        val bgColor = when {
+                            isSelected && isAll -> Color(0xFFEDE9FE)
+                            isSelected -> Color(0xFFEFF6FF)
+                            else -> Color.White
+                        }
+                        val textColor = when {
+                            isSelected && isAll -> Color(0xFF6D28D9)
+                            isSelected -> Color(0xFF1D4ED8)
+                            else -> Color(0xFF1E293B)
+                        }
+                        val borderColor = when {
+                            isSelected && isAll -> Color(0xFFDDD6FE)
+                            isSelected -> Color(0xFF1D4ED8)
+                            else -> Color(0xFF475569)
+                        }
+
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = bgColor,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
+                            modifier = Modifier.clickable { statusFilter = filter }
+                        ) {
+                            Text(
+                                text = filter,
+                                fontSize = 14.sp,
+                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                                color = textColor,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                            )
+                        }
                     }
                 }
             }
         }
 
         item {
-            // Actions Row: "Mark all present" + Mode Switcher ("List" / "Roll-call")
+            // Actions Row matching reference image 6.jpg: "Mark all present" + "List" / "Roll-call"
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Button(
                     onClick = { viewModel.markAllPresent() },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE0E7FF)),
-                    shape = RoundedCornerShape(20.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDBEAFE)),
+                    shape = RoundedCornerShape(24.dp),
+                    contentPadding = PaddingValues(horizontal = 18.dp, vertical = 9.dp),
                     modifier = Modifier.testTag("mark_all_present_btn")
                 ) {
-                    Text("Mark all present", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF1E3A8A))
+                    Text("Mark all present", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF1D4ED8))
                 }
 
-                // Mode Selector
+                // Mode Selector Switch matching reference image 6.jpg
                 Row(
                     modifier = Modifier
-                        .background(Color(0xFFE2E8F0), RoundedCornerShape(20.dp))
-                        .padding(3.dp)
+                        .background(Color(0xFFE2E8F0), RoundedCornerShape(24.dp))
+                        .padding(3.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     listOf("List", "Roll-call").forEach { m ->
                         val isSelected = mode == m
                         Box(
                             modifier = Modifier
-                                .background(if (isSelected) Color.White else Color.Transparent, RoundedCornerShape(16.dp))
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(if (isSelected) Color.White else Color.Transparent)
                                 .clickable { viewModel.attendanceMode.value = m }
-                                .padding(horizontal = 14.dp, vertical = 6.dp)
+                                .padding(horizontal = 16.dp, vertical = 7.dp)
                         ) {
                             Text(
                                 text = m,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                 color = if (isSelected) Color(0xFF1E3A8A) else Color(0xFF64748B),
                                 fontSize = 13.sp
                             )
@@ -244,19 +279,19 @@ fun AttendanceScreen(viewModel: HaazriViewModel) {
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
-            // Status Legend Row
+            // Status Legend Row matching reference image 6.jpg
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                LegendItem("Present", PresentGreenText)
-                LegendItem("Absent", AbsentRedText)
-                LegendItem("Half", HalfOrangeText)
-                LegendItem("Off", OffGrayText)
+                LegendItem("Present", Color(0xFF16A34A))
+                LegendItem("Absent", Color(0xFFDC2626))
+                LegendItem("Half", Color(0xFFEA580C))
+                LegendItem("Off", Color(0xFF334155))
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -353,12 +388,12 @@ fun LegendItem(label: String, color: Color) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Box(
             modifier = Modifier
-                .size(10.dp)
+                .size(9.dp)
                 .clip(CircleShape)
                 .background(color)
         ) { }
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(label, fontSize = 12.sp, color = Color(0xFF475569))
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(label, fontSize = 13.sp, color = Color(0xFF475569), fontWeight = FontWeight.Medium)
     }
 }
 
@@ -371,28 +406,29 @@ fun AttendanceWorkerRowCard(
     onOpenManualAmount: () -> Unit
 ) {
     Card(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp),
         modifier = Modifier
             .fillMaxWidth()
             .testTag("attendance_row_${worker.id}")
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
-            // Top Header: Avatar + Worker Name & Wage + Edit Amount Button
+            // Top Header: Avatar + Worker Name & Wage + Edit Amount Button matching 6.jpg
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
-                        .size(44.dp)
+                        .size(46.dp)
                         .clip(CircleShape)
-                        .background(Color(0xFFC8E6C9)),
+                        .background(Color(0xFFDCFCE7)),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = worker.name.take(1).uppercase(),
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF2E7D32)
+                        color = Color(0xFF15803D)
                     )
                 }
 
@@ -403,14 +439,15 @@ fun AttendanceWorkerRowCard(
                         text = worker.name,
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp,
-                        color = Color(0xFF1E293B),
+                        color = Color(0xFF0F172A),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Spacer(modifier = Modifier.height(2.dp))
-                    val wageStr = if (isAmountsHidden) "₹••••" else "₹${worker.wageRate.toInt()}"
+                    val wageAmount = if (isAmountsHidden) "••••" else worker.wageRate.toInt().toString()
+                    val unitStr = if (worker.wageType.equals("Daily", ignoreCase = true)) "/day" else "/mo"
                     Text(
-                        text = "$wageStr/mo",
+                        text = "₹$wageAmount$unitStr",
                         fontSize = 13.sp,
                         color = Color(0xFF64748B),
                         maxLines = 1,
@@ -420,34 +457,65 @@ fun AttendanceWorkerRowCard(
 
                 Spacer(modifier = Modifier.width(8.dp))
 
-                // Manual Amount Action Button Icon
+                // Manual Amount / Notes Action Button Icon matching 6.jpg
                 IconButton(
                     onClick = onOpenManualAmount,
                     modifier = Modifier
-                        .size(36.dp)
-                        .background(Color(0xFFEFF6FF), RoundedCornerShape(8.dp))
+                        .size(38.dp)
+                        .background(Color(0xFFEFF6FF), RoundedCornerShape(10.dp))
                 ) {
                     Icon(
                         imageVector = Icons.Default.EditNote,
                         contentDescription = "Set Manual Amount",
-                        tint = Color(0xFF1E3A8A),
-                        modifier = Modifier.size(20.dp)
+                        tint = Color(0xFF1D4ED8),
+                        modifier = Modifier.size(22.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Bottom Action Row: Quick Status Toggles spanning full card width
+            // Bottom Action Row: Status Buttons matching reference image 6.jpg ([ P ] [ A ] [ ½ ] [ O ])
             Row(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                StatusPill("P", currentRecord?.status == "P", PresentGreenBg, PresentGreenText, modifier = Modifier.weight(1f)) { onStatusChange("P") }
-                StatusPill("A", currentRecord?.status == "A", AbsentRedBg, AbsentRedText, modifier = Modifier.weight(1f)) { onStatusChange("A") }
-                StatusPill("½", currentRecord?.status == "1/2", HalfOrangeBg, HalfOrangeText, modifier = Modifier.weight(1f)) { onStatusChange("1/2") }
-                StatusPill("O", currentRecord?.status == "O", OffGrayBg, OffGrayText, modifier = Modifier.weight(1f)) { onStatusChange("O") }
+                StatusPill(
+                    label = "P",
+                    isSelected = currentRecord?.status == "P",
+                    bgActiveColor = Color(0xFFDCFCE7),
+                    borderActiveColor = Color(0xFF16A34A),
+                    textActiveColor = Color(0xFF15803D),
+                    modifier = Modifier.weight(1f)
+                ) { onStatusChange("P") }
+
+                StatusPill(
+                    label = "A",
+                    isSelected = currentRecord?.status == "A",
+                    bgActiveColor = Color(0xFFFEE2E2),
+                    borderActiveColor = Color(0xFFDC2626),
+                    textActiveColor = Color(0xFFB91C1C),
+                    modifier = Modifier.weight(1f)
+                ) { onStatusChange("A") }
+
+                StatusPill(
+                    label = "½",
+                    isSelected = currentRecord?.status == "1/2",
+                    bgActiveColor = Color(0xFFFFEDD5),
+                    borderActiveColor = Color(0xFFEA580C),
+                    textActiveColor = Color(0xFFC2410C),
+                    modifier = Modifier.weight(1f)
+                ) { onStatusChange("1/2") }
+
+                StatusPill(
+                    label = "O",
+                    isSelected = currentRecord?.status == "O",
+                    bgActiveColor = Color(0xFFE2E8F0),
+                    borderActiveColor = Color(0xFF334155),
+                    textActiveColor = Color(0xFF0F172A),
+                    modifier = Modifier.weight(1f)
+                ) { onStatusChange("O") }
             }
 
             // Display badge if custom manual amount is set for this day
@@ -534,19 +602,20 @@ fun StatusPill(
     label: String,
     isSelected: Boolean,
     bgActiveColor: Color,
+    borderActiveColor: Color,
     textActiveColor: Color,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     Box(
         modifier = modifier
-            .height(38.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (isSelected) bgActiveColor else Color(0xFFF1F5F9))
+            .height(44.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (isSelected) bgActiveColor else Color(0xFFF8FAFC))
             .border(
                 width = if (isSelected) 2.dp else 1.dp,
-                color = if (isSelected) textActiveColor else Color(0xFFCBD5E1),
-                shape = RoundedCornerShape(8.dp)
+                color = if (isSelected) borderActiveColor else Color(0xFFCBD5E1),
+                shape = RoundedCornerShape(10.dp)
             )
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
@@ -554,8 +623,8 @@ fun StatusPill(
         Text(
             text = label,
             fontWeight = FontWeight.Bold,
-            fontSize = 15.sp,
-            color = if (isSelected) textActiveColor else Color(0xFF64748B)
+            fontSize = 16.sp,
+            color = if (isSelected) textActiveColor else Color(0xFF334155)
         )
     }
 }

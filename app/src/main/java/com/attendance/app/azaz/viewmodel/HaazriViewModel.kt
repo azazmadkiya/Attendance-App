@@ -521,6 +521,11 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
         if (cleanPhone.isNotBlank()) loggedInPhone.value = cleanPhone
         isEmailVerified.value = verified
 
+        // Auto recover data from Cloud if user reinstalled app and local database is empty
+        viewModelScope.launch {
+            com.attendance.app.azaz.util.CloudBackupManager.autoRecoverIfEmpty(getApplication(), repository, authManager)
+        }
+
         // Direct user to main dashboard on login
         activeScreen.value = ScreenState.MAIN_TABS
 
@@ -607,6 +612,24 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
 
     fun exportWorkerDetailsCsv(context: android.content.Context, worker: Worker, records: List<AttendanceRecord>): Uri? {
         return null
+    }
+
+    fun triggerCloudBackup() {
+        viewModelScope.launch {
+            try {
+                com.attendance.app.azaz.util.CloudBackupManager.saveBackupToCloud(getApplication(), repository, authManager)
+            } catch (e: Exception) {
+                android.util.Log.w("HaazriViewModel", "Trigger cloud backup warning: ${e.message}")
+            }
+        }
+    }
+
+    suspend fun saveBackupToCloudNow(): Result<String> {
+        return com.attendance.app.azaz.util.CloudBackupManager.saveBackupToCloud(getApplication(), repository, authManager)
+    }
+
+    suspend fun recoverDataFromCloudNow(isOverwrite: Boolean = true): Result<String> {
+        return com.attendance.app.azaz.util.CloudBackupManager.recoverDataFromCloud(getApplication(), repository, authManager, isOverwrite)
     }
 
     fun getDailyWageBreakdown(worker: Worker, status: String, customAmount: Double): Double {

@@ -16,6 +16,10 @@ data class BackupData(
 
 object BackupManager {
 
+    fun exportToJson(data: BackupData): String {
+        return exportToJson(data.workers, data.attendanceRecords, data.cashbookEntries, data.notificationSetting)
+    }
+
     fun exportToJson(
         workers: List<Worker>,
         attendanceRecords: List<AttendanceRecord>,

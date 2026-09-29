@@ -459,37 +459,6 @@ fun SettingsScreen(viewModel: HaazriViewModel) {
                     },
                     modifier = Modifier.testTag("app_security_lock_row")
                 )
-
-                // Quick Lock App action if lock is enabled
-                if (isAppLockEnabled) {
-                    HorizontalDivider(color = Color(0xFFF1F5F9))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                appLockManager.lockApp()
-                                Toast.makeText(context, "App locked! Enter PIN to unlock.", Toast.LENGTH_SHORT).show()
-                            }
-                            .padding(horizontal = 16.dp, vertical = 12.dp)
-                            .testTag("lock_app_now_row")
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .background(Color(0xFFFEF2F2), RoundedCornerShape(10.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(Icons.Outlined.Lock, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(20.dp))
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Lock App Now", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFFDC2626))
-                            Text("Immediately test your 4-digit PIN / Fingerprint lock", fontSize = 12.sp, color = Color(0xFF64748B))
-                        }
-                        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = Color(0xFF94A3B8))
-                    }
-                }
             }
         }
 

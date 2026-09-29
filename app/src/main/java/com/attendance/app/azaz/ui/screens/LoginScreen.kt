@@ -672,6 +672,71 @@ fun LoginScreen(
                         }
                     }
 
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Divider with OR
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
+                        Text(
+                            text = "OR",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF94A3B8),
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                        HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Google Sign-In Button
+                    OutlinedButton(
+                        onClick = {
+                            if (isLoading) return@OutlinedButton
+                            errorMessage = null
+                            coroutineScope.launch {
+                                isLoading = true
+                                val result = viewModel.signInWithGoogle(activity)
+                                isLoading = false
+                                when (result) {
+                                    is AuthResult.Success -> {
+                                        Toast.makeText(context, "Welcome, ${viewModel.loggedInUserName.value}!", Toast.LENGTH_SHORT).show()
+                                        onLoginSuccess()
+                                    }
+                                    is AuthResult.Error -> {
+                                        errorMessage = result.message
+                                    }
+                                    is AuthResult.Cancelled -> {}
+                                }
+                            }
+                        },
+                        enabled = !isLoading,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("btn_google_signin"),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AccountCircle,
+                            contentDescription = "Google Sign In",
+                            tint = Color(0xFFEA4335),
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Continue with Google",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF1E293B)
+                        )
+                    }
+
                     Spacer(modifier = Modifier.height(14.dp))
                 }
             }

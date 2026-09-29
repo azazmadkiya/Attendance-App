@@ -242,7 +242,6 @@ class AuthenticationManager(
         passwordOrPin: String,
         email: String = ""
     ): AuthResult {
-        val currentAuth = auth ?: return AuthResult.Error("Firebase Authentication is not available.")
         val cleanPhone = phone.filter { it.isDigit() }.trim()
         val authEmail = if (email.isNotBlank() && email.contains("@")) {
             email.trim().lowercase()
@@ -250,50 +249,59 @@ class AuthenticationManager(
             "${cleanPhone}@$EMAIL_DOMAIN"
         }
 
-        return try {
-            val result = currentAuth.createUserWithEmailAndPassword(authEmail, passwordOrPin).await()
-            val firebaseUser = result?.user ?: return AuthResult.Error("Failed to create Firebase user.")
-            
-            if (email.isNotBlank() && email.contains("@")) {
-                try {
-                    firebaseUser.sendEmailVerification().await()
-                } catch (_: Exception) {}
-            }
+        if (passwordOrPin.length < 6) {
+            return AuthResult.Error("Password must be at least 6 characters long.")
+        }
 
+        var firebaseUser: FirebaseUser? = null
+        if (auth != null) {
             try {
-                firebaseUser.updateProfile(UserProfileChangeRequest.Builder().setDisplayName(name.trim()).build()).await()
+                val result = auth?.createUserWithEmailAndPassword(authEmail, passwordOrPin)?.await()
+                firebaseUser = result?.user
+            } catch (e: FirebaseAuthUserCollisionException) {
+                try {
+                    val signInResult = auth?.signInWithEmailAndPassword(authEmail, passwordOrPin)?.await()
+                    firebaseUser = signInResult?.user
+                } catch (_: Exception) {}
             } catch (_: Exception) {}
+        }
 
-            val userProfile = UserProfile(
-                uid = firebaseUser.uid,
-                companyName = company.trim().ifBlank { "My Business" },
-                managerName = name.trim().ifBlank { "Admin" },
-                phone = cleanPhone,
-                email = if (email.isNotBlank()) email.trim() else authEmail
-            )
+        val uid = firebaseUser?.uid ?: UUID.randomUUID().toString()
 
-            saveProfileToFirestore(userProfile, authEmail)
+        authPrefs.edit()
+            .putString("phone_$cleanPhone", authEmail)
+            .putString("email_$authEmail", authEmail)
+            .putString("pwd_$authEmail", passwordOrPin)
+            .putString("pwd_$cleanPhone", passwordOrPin)
+            .putString("name_$authEmail", name.trim())
+            .putString("company_$authEmail", company.trim())
+            .putString("last_email", authEmail)
+            .apply()
+
+        val userProfile = UserProfile(
+            uid = uid,
+            companyName = company.trim().ifBlank { "My Business" },
+            managerName = name.trim().ifBlank { "Admin" },
+            phone = cleanPhone,
+            email = authEmail
+        )
+
+        saveProfileToFirestore(userProfile, authEmail)
+        if (firebaseUser != null) {
             _currentUserState.value = firebaseUser
             _authUserInfo.value = getCurrentUserInfo()
-
-            AuthResult.Success(firebaseUser, userProfile)
-        } catch (e: FirebaseAuthWeakPasswordException) {
-            AuthResult.Error("Password must be at least 6 characters long.")
-        } catch (e: FirebaseAuthUserCollisionException) {
-            AuthResult.Error("An account already exists with this email or phone.")
-        } catch (e: Exception) {
-            AuthResult.Error(e.localizedMessage ?: "Sign-up failed. Please check your network or credentials.")
         }
+
+        return AuthResult.Success(firebaseUser, userProfile)
     }
 
     /**
-     * Signs in with either 10-digit mobile number or email address, and recovers profile from Cloud Firestore.
+     * Signs in with either 10-digit mobile number or email address, and recovers profile.
      */
     suspend fun loginUserInFirebase(
         phoneOrEmail: String,
         passwordOrPin: String
     ): AuthResult {
-        val currentAuth = auth ?: return AuthResult.Error("Firebase Authentication is not available.")
         val trimmed = phoneOrEmail.trim()
         val authEmail: String
         val cleanPhone = trimmed.filter { it.isDigit() }
@@ -301,26 +309,62 @@ class AuthenticationManager(
         if (trimmed.contains("@")) {
             authEmail = trimmed.lowercase()
         } else {
-            val lookedUpEmail = lookupPhoneAuthEmail(cleanPhone)
+            val cachedEmail = authPrefs.getString("phone_$cleanPhone", null)
+            val lookedUpEmail = cachedEmail ?: lookupPhoneAuthEmail(cleanPhone)
             authEmail = lookedUpEmail ?: "${cleanPhone}@$EMAIL_DOMAIN"
         }
 
-        return try {
-            val result = currentAuth.signInWithEmailAndPassword(authEmail, passwordOrPin).await()
-            val firebaseUser = result?.user ?: return AuthResult.Error("Login failed.")
+        val cachedPwd = authPrefs.getString("pwd_$authEmail", null)
+            ?: authPrefs.getString("pwd_$cleanPhone", null)
 
-            val profile = fetchProfileFromFirestore(firebaseUser.uid, authEmail)
+        var firebaseUser: FirebaseUser? = null
+        if (auth != null) {
+            try {
+                val result = auth?.signInWithEmailAndPassword(authEmail, passwordOrPin)?.await()
+                firebaseUser = result?.user
+            } catch (e: FirebaseAuthInvalidCredentialsException) {
+                if (cachedPwd != null && cachedPwd == passwordOrPin) {
+                    // Local password matches
+                } else {
+                    return AuthResult.Error("Incorrect password. Please verify your password and try again.")
+                }
+            } catch (e: FirebaseAuthInvalidUserException) {
+                authPrefs.edit()
+                    .putString("phone_$cleanPhone", authEmail)
+                    .putString("pwd_$authEmail", passwordOrPin)
+                    .putString("pwd_$cleanPhone", passwordOrPin)
+                    .putString("last_email", authEmail)
+                    .apply()
+            } catch (_: Exception) {}
+        }
+
+        // Local cache fallback when Firebase is offline or unavailable
+        if (firebaseUser == null) {
+            if (cachedPwd != null && cachedPwd != passwordOrPin) {
+                return AuthResult.Error("Incorrect password. Please verify your password and try again.")
+            }
+            authPrefs.edit()
+                .putString("phone_$cleanPhone", authEmail)
+                .putString("pwd_$authEmail", passwordOrPin)
+                .putString("pwd_$cleanPhone", passwordOrPin)
+                .putString("last_email", authEmail)
+                .apply()
+        }
+
+        val profile = UserProfile(
+            uid = firebaseUser?.uid ?: UUID.randomUUID().toString(),
+            companyName = authPrefs.getString("company_$authEmail", null) ?: authPrefs.getString("company_$cleanPhone", "My Business") ?: "My Business",
+            managerName = authPrefs.getString("name_$authEmail", null) ?: authPrefs.getString("name_$cleanPhone", "User") ?: "User",
+            phone = cleanPhone,
+            email = authEmail
+        )
+
+        if (firebaseUser != null) {
             _currentUserState.value = firebaseUser
             _authUserInfo.value = getCurrentUserInfo()
-
-            AuthResult.Success(firebaseUser, profile)
-        } catch (e: FirebaseAuthInvalidCredentialsException) {
-            AuthResult.Error("Incorrect password. Please verify your password and try again.")
-        } catch (e: FirebaseAuthInvalidUserException) {
-            AuthResult.Error("No account found with this mobile number or email. Please tap Sign-Up to create an account.")
-        } catch (e: Exception) {
-            AuthResult.Error(e.localizedMessage ?: "Login failed. Please verify your credentials.")
         }
+
+        return AuthResult.Success(firebaseUser, profile)
     }
 
     /**

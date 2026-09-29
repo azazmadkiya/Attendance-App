@@ -1,0 +1,34 @@
+package com.attendance.app.azaz.receiver
+
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import com.attendance.app.azaz.data.HaazriDatabase
+import com.attendance.app.azaz.data.HaazriRepository
+import com.attendance.app.azaz.util.NotificationScheduler
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.launch
+
+class BootReceiver : BroadcastReceiver() {
+
+    override fun onReceive(context: Context, intent: Intent) {
+        val action = intent.action
+        if (action == Intent.ACTION_BOOT_COMPLETED || action == Intent.ACTION_MY_PACKAGE_REPLACED) {
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val db = HaazriDatabase.getDatabase(context)
+                    val repository = HaazriRepository(db)
+                    val settings = repository.notificationSettings.firstOrNull()
+                    if (settings != null) {
+                        NotificationScheduler.scheduleAll(context, settings)
+                    }
+                    com.attendance.app.azaz.util.AutoBackupScheduler.scheduleDailyBackup(context)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+}

@@ -1,4 +1,4 @@
-package com.example.ui.screens
+package com.attendance.app.azaz.ui.screens
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -30,8 +30,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.ui.theme.HaazriPrimary
-import com.example.viewmodel.HaazriViewModel
+import com.attendance.app.azaz.ui.theme.HaazriPrimary
+import com.attendance.app.azaz.viewmodel.HaazriViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -72,17 +72,17 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
     // Local backups stored on device
     var localBackups by remember { mutableStateOf<List<LocalBackupItem>>(emptyList()) }
 
-    var autoBackupEnabled by remember { mutableStateOf(com.example.util.AutoBackupScheduler.isAutoBackupEnabled(context)) }
-    var lastBackupTime by remember { mutableStateOf(com.example.util.AutoBackupScheduler.getLastBackupTime(context)) }
-    var lastBackupSummary by remember { mutableStateOf(com.example.util.AutoBackupScheduler.getLastBackupSummary(context)) }
-    var lastBackupStatus by remember { mutableStateOf(com.example.util.AutoBackupScheduler.getLastBackupStatus(context)) }
-    var lastBackupFileName by remember { mutableStateOf(com.example.util.AutoBackupScheduler.getLastBackupFileName(context)) }
+    var autoBackupEnabled by remember { mutableStateOf(com.attendance.app.azaz.util.AutoBackupScheduler.isAutoBackupEnabled(context)) }
+    var lastBackupTime by remember { mutableStateOf(com.attendance.app.azaz.util.AutoBackupScheduler.getLastBackupTime(context)) }
+    var lastBackupSummary by remember { mutableStateOf(com.attendance.app.azaz.util.AutoBackupScheduler.getLastBackupSummary(context)) }
+    var lastBackupStatus by remember { mutableStateOf(com.attendance.app.azaz.util.AutoBackupScheduler.getLastBackupStatus(context)) }
+    var lastBackupFileName by remember { mutableStateOf(com.attendance.app.azaz.util.AutoBackupScheduler.getLastBackupFileName(context)) }
 
     fun refreshAutoBackupInfo() {
-        lastBackupTime = com.example.util.AutoBackupScheduler.getLastBackupTime(context)
-        lastBackupSummary = com.example.util.AutoBackupScheduler.getLastBackupSummary(context)
-        lastBackupStatus = com.example.util.AutoBackupScheduler.getLastBackupStatus(context)
-        lastBackupFileName = com.example.util.AutoBackupScheduler.getLastBackupFileName(context)
+        lastBackupTime = com.attendance.app.azaz.util.AutoBackupScheduler.getLastBackupTime(context)
+        lastBackupSummary = com.attendance.app.azaz.util.AutoBackupScheduler.getLastBackupSummary(context)
+        lastBackupStatus = com.attendance.app.azaz.util.AutoBackupScheduler.getLastBackupStatus(context)
+        lastBackupFileName = com.attendance.app.azaz.util.AutoBackupScheduler.getLastBackupFileName(context)
     }
 
     fun refreshLocalBackups() {
@@ -188,6 +188,96 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
                         isSuccessStatus = false
                         restoreStatusMessage = "Failed to read backup file: ${e.localizedMessage}"
                         Toast.makeText(context, "Error opening file: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
+
+    val createEncryptedDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            isOperating = true
+            restoreStatusMessage = "Creating encrypted SQLite backup..."
+            coroutineScope.launch(Dispatchers.IO) {
+                val result = viewModel.exportEncryptedBackup()
+                if (result.isSuccess) {
+                    val localEncFile = result.getOrThrow()
+                    try {
+                        context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                            localEncFile.inputStream().use { inputStream ->
+                                inputStream.copyTo(outputStream)
+                            }
+                            outputStream.flush()
+                        }
+                        withContext(Dispatchers.Main) {
+                            isOperating = false
+                            isSuccessStatus = true
+                            restoreStatusMessage = "Encrypted backup saved successfully to selected location!"
+                            Toast.makeText(context, "Encrypted backup saved successfully!", Toast.LENGTH_LONG).show()
+                            refreshLocalBackups()
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            isOperating = false
+                            isSuccessStatus = false
+                            restoreStatusMessage = "Failed to copy encrypted file: ${e.localizedMessage}"
+                        }
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        isOperating = false
+                        isSuccessStatus = false
+                        restoreStatusMessage = "Failed to create encrypted backup: ${result.exceptionOrNull()?.localizedMessage}"
+                    }
+                }
+            }
+        }
+    }
+
+    val openEncryptedDocumentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            isOperating = true
+            restoreStatusMessage = "Restoring encrypted SQLite backup..."
+            coroutineScope.launch(Dispatchers.IO) {
+                try {
+                    // Copy picked file to internal sandbox
+                    val localEncFile = File(context.filesDir, "haazri_backup.enc")
+                    context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                        localEncFile.outputStream().use { outputStream ->
+                            inputStream.copyTo(outputStream)
+                        }
+                    }
+                    
+                    val result = viewModel.restoreEncryptedBackup()
+                    withContext(Dispatchers.Main) {
+                        isOperating = false
+                        if (result.isSuccess) {
+                            isSuccessStatus = true
+                            restoreStatusMessage = "Encrypted database restored successfully! Restarting app..."
+                            Toast.makeText(context, "Encrypted backup restored. Restarting...", Toast.LENGTH_LONG).show()
+                            
+                            val packageManager = context.packageManager
+                            val intent = packageManager.getLaunchIntentForPackage(context.packageName)
+                            val componentName = intent?.component
+                            if (componentName != null) {
+                                val mainIntent = android.content.Intent.makeRestartActivityTask(componentName)
+                                context.startActivity(mainIntent)
+                                Runtime.getRuntime().exit(0)
+                            }
+                        } else {
+                            isSuccessStatus = false
+                            restoreStatusMessage = "Failed to restore: ${result.exceptionOrNull()?.localizedMessage}"
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        isOperating = false
+                        isSuccessStatus = false
+                        restoreStatusMessage = "Failed to read picked file: ${e.localizedMessage}"
                     }
                 }
             }
@@ -579,7 +669,7 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
                         checked = autoBackupEnabled,
                         onCheckedChange = { enabled ->
                             autoBackupEnabled = enabled
-                            com.example.util.AutoBackupScheduler.setAutoBackupEnabled(context, enabled)
+                            com.attendance.app.azaz.util.AutoBackupScheduler.setAutoBackupEnabled(context, enabled)
                             Toast.makeText(
                                 context,
                                 if (enabled) "Automatic 24-hour backup enabled" else "Automatic backup disabled",
@@ -651,7 +741,7 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
                 // Immediate trigger button
                 OutlinedButton(
                     onClick = {
-                        com.example.util.AutoBackupScheduler.triggerImmediateBackup(context)
+                        com.attendance.app.azaz.util.AutoBackupScheduler.triggerImmediateBackup(context)
                         Toast.makeText(context, "WorkManager backup job enqueued! Saving in background...", Toast.LENGTH_LONG).show()
                         coroutineScope.launch {
                             kotlinx.coroutines.delay(1200)
@@ -791,6 +881,26 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
                     Icon(Icons.Outlined.Share, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Share Backup File (WhatsApp / Drive)", fontWeight = FontWeight.Bold, color = Color.White)
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Action 3: Encrypted Database Backup
+                Button(
+                    onClick = {
+                        val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+                        createEncryptedDocumentLauncher.launch("Haazri_Encrypted_Backup_$timeStamp.enc")
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4F46E5)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("btn_save_encrypted_backup")
+                ) {
+                    Icon(Icons.Outlined.Lock, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Export Encrypted SQLite DB (Secure)", fontWeight = FontWeight.Bold, color = Color.White)
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -1000,7 +1110,12 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
                 Button(
                     onClick = {
                         openDocumentLauncher.launch(
-                            arrayOf("*/*")
+                            arrayOf(
+                                "application/json",
+                                "text/plain",
+                                "application/octet-stream",
+                                "*/*"
+                            )
                         )
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2563EB)),
@@ -1030,6 +1145,25 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Paste Backup JSON Code", fontWeight = FontWeight.Bold, color = Color(0xFF475569))
                 }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Action 4: Restore Encrypted Database
+                Button(
+                    onClick = {
+                        openEncryptedDocumentLauncher.launch(arrayOf("*/*")) // Allow all files, since Android might not recognize .enc mime type natively
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4F46E5)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("btn_restore_encrypted_backup")
+                ) {
+                    Icon(Icons.Outlined.LockOpen, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Restore Encrypted SQLite DB", fontWeight = FontWeight.Bold, color = Color.White)
+                }
             }
         }
 
@@ -1053,38 +1187,3 @@ fun BackupStatChip(title: String, count: String, bgColor: Color, textColor: Colo
     }
 }
 
-private fun saveBackupToDownloadsMediaStore(context: Context, fileName: String, jsonContent: String): Boolean {
-    return try {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            val contentValues = android.content.ContentValues().apply {
-                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "application/json")
-                put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS)
-            }
-            val resolver = context.contentResolver
-            val uri = resolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
-            if (uri != null) {
-                resolver.openOutputStream(uri)?.use { outputStream ->
-                    outputStream.write(jsonContent.toByteArray(Charsets.UTF_8))
-                }
-                true
-            } else false
-        } else {
-            val downloadsDir = android.os.Environment.getExternalStoragePublicDirectory(android.os.Environment.DIRECTORY_DOWNLOADS)
-            if (downloadsDir != null && (downloadsDir.exists() || downloadsDir.mkdirs())) {
-                val file = File(downloadsDir, fileName)
-                file.writeText(jsonContent, Charsets.UTF_8)
-                android.media.MediaScannerConnection.scanFile(
-                    context,
-                    arrayOf(file.absolutePath),
-                    arrayOf("application/json"),
-                    null
-                )
-                true
-            } else false
-        }
-    } catch (e: Exception) {
-        e.printStackTrace()
-        false
-    }
-}

@@ -54,10 +54,10 @@ jobs:
 
           echo "Java environment verification passed (Java $JAVA_MAJOR >= 17)."
 
-      - name: Set up Gradle 9.3.1
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.3.1'
+          gradle-version: 'wrapper'
 
       - name: Create temporary debug keystore
         run: |
@@ -85,7 +85,7 @@ jobs:
 
       - name: Build debug APK
         run: |
-          gradle :app:assembleDebug --stacktrace --no-daemon
+          ./gradlew :app:assembleDebug --stacktrace --no-daemon
 
       - name: Verify debug APK exists
         run: |

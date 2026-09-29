@@ -10,15 +10,15 @@ plugins {
 }
 
 android {
-  namespace = "com.example"
+  namespace = "com.attendance.app.azaz"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
 
   defaultConfig {
     applicationId = "com.attendance.app.azaz"
     minSdk = 24
     targetSdk = 36
-    versionCode = 4
-    versionName = "1.3"
+    versionCode = 5
+    versionName = "1.4"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }

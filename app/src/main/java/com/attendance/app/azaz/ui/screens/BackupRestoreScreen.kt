@@ -59,7 +59,7 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
     val loggedInCompany by viewModel.loggedInCompanyName.collectAsState()
     val loggedInPhone by viewModel.loggedInPhone.collectAsState()
 
-    var isOverwriteMode by remember { mutableStateOf(false) }
+    var isOverwriteMode by remember { mutableStateOf(true) }
     var showPasteJsonDialog by remember { mutableStateOf(false) }
     var jsonPasteInput by remember { mutableStateOf("") }
     var restoreStatusMessage by remember { mutableStateOf<String?>(null) }

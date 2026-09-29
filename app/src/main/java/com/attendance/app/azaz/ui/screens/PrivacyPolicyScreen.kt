@@ -161,7 +161,7 @@ fun PrivacyPolicyScreen(viewModel: HaazriViewModel) {
             )
             PolicyBullet(
                 title = "Authentication Credentials:",
-                desc = "When signing in with Google, we authenticate securely using Google Sign-In / Firebase Auth token. We do not store your Google password."
+                desc = "We authenticate securely using Firebase Auth. Your credentials and passwords are safe and encrypted."
             )
         }
 

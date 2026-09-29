@@ -548,57 +548,6 @@ fun LoginScreen(
                         }
                     }
 
-                    // Demo Account Auto-Fill Helper (Fast login for testing)
-                    if (!isRegisterMode) {
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            shape = RoundedCornerShape(10.dp),
-                            color = Color(0xFFF0FDF4),
-                            border = BorderStroke(1.dp, Color(0xFFBBF7D0))
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        phoneInput = "9100000000"
-                                        passwordInput = "123456"
-                                        errorMessage = null
-                                    }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Default.CheckCircle,
-                                    contentDescription = null,
-                                    tint = Color(0xFF16A34A),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = "Quick Demo Login: 9100000000 / 123456",
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF15803D)
-                                    )
-                                    Text(
-                                        text = "Tap to auto-fill demo credentials instantly",
-                                        fontSize = 10.sp,
-                                        color = Color(0xFF166534)
-                                    )
-                                }
-                                Text(
-                                    text = "Auto-fill",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF15803D)
-                                )
-                            }
-                        }
-                    }
-
                     Spacer(modifier = Modifier.height(14.dp))
 
                     // Primary Action Button (Sign Up / Login)
@@ -723,70 +672,7 @@ fun LoginScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Divider with OR
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
-                        Text(
-                            text = "OR",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF94A3B8),
-                            modifier = Modifier.padding(horizontal = 12.dp)
-                        )
-                        HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
-                    }
-
                     Spacer(modifier = Modifier.height(14.dp))
-
-                    // Google Sign-In Button
-                    OutlinedButton(
-                        onClick = {
-                            if (isLoading) return@OutlinedButton
-                            errorMessage = null
-                            coroutineScope.launch {
-                                isLoading = true
-                                val result = viewModel.signInWithGoogle(activity)
-                                isLoading = false
-                                when (result) {
-                                    is AuthResult.Success -> {
-                                        Toast.makeText(context, "Welcome, ${viewModel.loggedInUserName.value}!", Toast.LENGTH_SHORT).show()
-                                        onLoginSuccess()
-                                    }
-                                    is AuthResult.Error -> {
-                                        errorMessage = result.message
-                                    }
-                                    is AuthResult.Cancelled -> {}
-                                }
-                            }
-                        },
-                        enabled = !isLoading,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
-                            .testTag("btn_google_signin"),
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AccountCircle,
-                            contentDescription = "Google Sign In",
-                            tint = Color(0xFFEA4335),
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "Continue with Google",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF1E293B)
-                        )
-                    }
                 }
             }
 

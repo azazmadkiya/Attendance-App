@@ -80,41 +80,17 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
     val isAmountsHidden = MutableStateFlow(false)
 
     val loggedInCompanyName = MutableStateFlow(
-        prefs.getString("company_name", null)?.let {
-            if (it == "My Company" || it == "Madkiya Attendance") "Demo Company" else it
-        } ?: "Demo Company"
+        prefs.getString("company_name", null) ?: ""
     )
     val loggedInUserName = MutableStateFlow(
-        prefs.getString("user_name", null)?.let {
-            if (it == "Admin" || it == "Azaz Madkiya") "Demo" else it
-        } ?: "Demo"
+        prefs.getString("user_name", null) ?: ""
     )
     val loggedInPhone = MutableStateFlow(
-        prefs.getString("user_phone", null)?.let {
-            if (it.contains("9876543210")) "9100000000" else it
-        } ?: "9100000000"
+        prefs.getString("user_phone", null) ?: ""
     )
-    val loggedInEmail = MutableStateFlow(authManager.getCurrentUserInfo()?.email ?: prefs.getString("user_email", "admin@haazri.app") ?: "admin@haazri.app")
+    val loggedInEmail = MutableStateFlow(authManager.getCurrentUserInfo()?.email ?: prefs.getString("user_email", "") ?: "")
     val loggedInUserPhoto = MutableStateFlow(prefs.getString("user_photo_uri", null))
     val firebaseUserInfo = MutableStateFlow("Connected")
-
-    init {
-        val currentName = prefs.getString("user_name", null)
-        val currentCompany = prefs.getString("company_name", null)
-        val currentPhone = prefs.getString("user_phone", null)
-        if (currentName == null || currentName == "Admin" || currentName == "Azaz Madkiya") {
-            prefs.edit().putString("user_name", "Demo").apply()
-            loggedInUserName.value = "Demo"
-        }
-        if (currentCompany == null || currentCompany == "My Company" || currentCompany == "Madkiya Attendance") {
-            prefs.edit().putString("company_name", "Demo Company").apply()
-            loggedInCompanyName.value = "Demo Company"
-        }
-        if (currentPhone == null || currentPhone.contains("9876543210")) {
-            prefs.edit().putString("user_phone", "9100000000").apply()
-            loggedInPhone.value = "9100000000"
-        }
-    }
 
     val isAutoBackupEnabled = MutableStateFlow(true)
     val lastBackupTime = MutableStateFlow(System.currentTimeMillis())
@@ -488,10 +464,10 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
             return result
         }
 
-        val finalName = name.trim().ifBlank { "Demo" }
-        val finalCompany = company.trim().ifBlank { "Demo Company" }
-        val cleanPhone = phone.filter { it.isDigit() }.ifBlank { "9100000000" }
-        val finalEmail = if (email.isNotBlank()) email.trim() else "${cleanPhone}@attendanceapp.com"
+        val finalName = name.trim().ifBlank { "User" }
+        val finalCompany = company.trim().ifBlank { "My Business" }
+        val cleanPhone = phone.filter { it.isDigit() }
+        val finalEmail = if (email.isNotBlank()) email.trim() else "${cleanPhone.ifBlank { "user" }}@attendanceapp.com"
 
         prefs.edit()
             .putBoolean("is_logged_in", true)
@@ -525,9 +501,9 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
         val user = result.user ?: authManager.getCurrentUser()
         val profile = result.profile
         val email = profile?.email ?: user?.email ?: phoneOrEmail.trim()
-        val name = profile?.managerName ?: user?.displayName ?: "Demo"
-        val company = profile?.companyName ?: "Demo Company"
-        val cleanPhone = profile?.phone?.ifBlank { phoneOrEmail.filter { it.isDigit() } }?.ifBlank { "9100000000" } ?: phoneOrEmail.filter { it.isDigit() }.ifBlank { "9100000000" }
+        val name = profile?.managerName ?: user?.displayName ?: "User"
+        val company = profile?.companyName ?: "My Business"
+        val cleanPhone = profile?.phone?.ifBlank { phoneOrEmail.filter { it.isDigit() } } ?: phoneOrEmail.filter { it.isDigit() }
         val verified = authManager.isEmailVerified()
 
         prefs.edit()
@@ -556,10 +532,10 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
         if (result is AuthResult.Success) {
             val user = result.user ?: authManager.getCurrentUser()
             val profile = result.profile
-            val name = profile?.managerName ?: user?.displayName ?: "Demo"
-            val email = profile?.email ?: user?.email ?: "azazmadkiya@gmail.com"
-            val company = profile?.companyName ?: "Demo Company"
-            val phone = profile?.phone ?: "9100000000"
+            val name = profile?.managerName ?: user?.displayName ?: "User"
+            val email = profile?.email ?: user?.email ?: "user@example.com"
+            val company = profile?.companyName ?: "My Business"
+            val phone = profile?.phone ?: ""
 
             prefs.edit()
                 .putBoolean("is_logged_in", true)

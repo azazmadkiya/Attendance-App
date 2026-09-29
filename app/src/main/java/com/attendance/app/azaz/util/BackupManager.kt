@@ -133,11 +133,40 @@ object BackupManager {
         val jsonString = cleanInput.substring(startIndex, endIndex + 1)
         val root = JSONObject(jsonString)
 
-        // Workers parsing (supports "workers", "staff", "employees")
-        val workersArray = root.optJSONArray("workers")
-            ?: root.optJSONArray("staff")
-            ?: root.optJSONArray("employees")
+        // Helper to find JSONArray across possible key variations or nested objects
+        fun findArray(vararg keys: String): JSONArray? {
+            for (key in keys) {
+                val arr = root.optJSONArray(key)
+                if (arr != null) return arr
+            }
+            // Check inside nested "data", "payload", "content", "backup" objects
+            val nestedKeys = arrayOf("data", "payload", "content", "backup", "result")
+            for (nk in nestedKeys) {
+                val nestedObj = root.optJSONObject(nk)
+                if (nestedObj != null) {
+                    for (key in keys) {
+                        val arr = nestedObj.optJSONArray(key)
+                        if (arr != null) return arr
+                    }
+                }
+            }
+            // If still null, inspect all keys in root for any JSONArray
+            val keysIterator = root.keys()
+            while (keysIterator.hasNext()) {
+                val k = keysIterator.next()
+                val subObj = root.optJSONObject(k)
+                if (subObj != null) {
+                    for (key in keys) {
+                        val arr = subObj.optJSONArray(key)
+                        if (arr != null) return arr
+                    }
+                }
+            }
+            return null
+        }
 
+        // Workers parsing (supports "workers", "staff", "employees", "workerList", etc.)
+        val workersArray = findArray("workers", "staff", "employees", "workerList", "employeeList")
         if (workersArray != null) {
             for (i in 0 until workersArray.length()) {
                 val obj = workersArray.optJSONObject(i) ?: continue
@@ -145,29 +174,26 @@ object BackupManager {
             }
         }
 
-        // Attendance parsing (supports "attendanceRecords", "attendance", "records")
-        val attendanceArray = root.optJSONArray("attendanceRecords")
-            ?: root.optJSONArray("attendance")
-            ?: root.optJSONArray("records")
-
+        // Attendance parsing (supports "attendanceRecords", "attendance", "records", "attendanceList")
+        val attendanceArray = findArray("attendanceRecords", "attendance", "records", "attendanceList", "logs")
         if (attendanceArray != null) {
             for (i in 0 until attendanceArray.length()) {
                 val obj = attendanceArray.optJSONObject(i) ?: continue
                 val id = optFlexibleLong(obj, "id", 0L)
-                val workerId = optFlexibleLong(obj, "workerId", 0L)
-                val date = obj.optString("date", "")
+                val workerId = optFlexibleLong(obj, "workerId", optFlexibleLong(obj, "worker_id", 0L))
+                val date = obj.optString("date", "").ifBlank { obj.optString("attendanceDate", "") }
                 if (date.isNotBlank()) {
                     attendanceRecords.add(
                         AttendanceRecord(
                             id = id,
                             workerId = workerId,
                             date = date,
-                            status = obj.optString("status", "P"),
-                            checkInTime = obj.optString("checkInTime", ""),
-                            checkOutTime = obj.optString("checkOutTime", ""),
-                            overtimeHours = optFlexibleDouble(obj, "overtimeHours", 0.0),
-                            customAmount = optFlexibleDouble(obj, "customAmount", 0.0),
-                            notes = obj.optString("notes", "")
+                            status = obj.optString("status", "").ifBlank { obj.optString("attendanceStatus", "P") },
+                            checkInTime = obj.optString("checkInTime", "").ifBlank { obj.optString("check_in", "") },
+                            checkOutTime = obj.optString("checkOutTime", "").ifBlank { obj.optString("check_out", "") },
+                            overtimeHours = optFlexibleDouble(obj, "overtimeHours", optFlexibleDouble(obj, "overtime", 0.0)),
+                            customAmount = optFlexibleDouble(obj, "customAmount", optFlexibleDouble(obj, "amount", 0.0)),
+                            notes = obj.optString("notes", "").ifBlank { obj.optString("remark", "") }
                         )
                     )
                 }
@@ -175,15 +201,11 @@ object BackupManager {
         }
 
         // Cashbook parsing (supports "cashbookEntries", "cashbook", "ledger", "expenses")
-        val cashbookArray = root.optJSONArray("cashbookEntries")
-            ?: root.optJSONArray("cashbook")
-            ?: root.optJSONArray("ledger")
-            ?: root.optJSONArray("expenses")
-
+        val cashbookArray = findArray("cashbookEntries", "cashbook", "ledger", "expenses", "cashbookList")
         if (cashbookArray != null) {
             for (i in 0 until cashbookArray.length()) {
                 val obj = cashbookArray.optJSONObject(i) ?: continue
-                val rawWId = optFlexibleLong(obj, "workerId", -1L)
+                val rawWId = optFlexibleLong(obj, "workerId", optFlexibleLong(obj, "worker_id", -1L))
                 val date = obj.optString("date", "")
                 cashbookEntries.add(
                     CashbookEntry(
@@ -201,18 +223,16 @@ object BackupManager {
         }
 
         // Notification Setting
-        if (root.has("notificationSetting")) {
-            val obj = root.optJSONObject("notificationSetting")
-            if (obj != null) {
-                notificationSetting = NotificationSetting(
-                    id = optFlexibleInt(obj, "id", 1),
-                    dailyReminderEnabled = optFlexibleBoolean(obj, "dailyReminderEnabled", true),
-                    reminderTime = obj.optString("reminderTime", "09:00 AM"),
-                    missedCheckoutNudge = optFlexibleBoolean(obj, "missedCheckoutNudge", true),
-                    weeklyReportEnabled = optFlexibleBoolean(obj, "weeklyReportEnabled", true),
-                    hideAmounts = optFlexibleBoolean(obj, "hideAmounts", false)
-                )
-            }
+        val notifObj = root.optJSONObject("notificationSetting") ?: root.optJSONObject("notification")
+        if (notifObj != null) {
+            notificationSetting = NotificationSetting(
+                id = optFlexibleInt(notifObj, "id", 1),
+                dailyReminderEnabled = optFlexibleBoolean(notifObj, "dailyReminderEnabled", true),
+                reminderTime = notifObj.optString("reminderTime", "09:00 AM"),
+                missedCheckoutNudge = optFlexibleBoolean(notifObj, "missedCheckoutNudge", true),
+                weeklyReportEnabled = optFlexibleBoolean(notifObj, "weeklyReportEnabled", true),
+                hideAmounts = optFlexibleBoolean(notifObj, "hideAmounts", false)
+            )
         }
 
         if (workers.isEmpty() && attendanceRecords.isEmpty() && cashbookEntries.isEmpty()) {
@@ -228,16 +248,35 @@ object BackupManager {
     }
 
     private fun parseWorker(obj: JSONObject): Worker? {
-        val name = obj.optString("name", "").trim()
+        val name = obj.optString("name", "").ifBlank {
+            obj.optString("workerName", "").ifBlank {
+                obj.optString("fullName", "").ifBlank {
+                    obj.optString("employeeName", "")
+                }
+            }
+        }.trim()
         if (name.isBlank()) return null
+
+        val phone = obj.optString("phone", "").ifBlank {
+            obj.optString("phoneNumber", "").ifBlank {
+                obj.optString("mobile", "")
+            }
+        }.trim()
+
+        val wageType = obj.optString("wageType", "").ifBlank {
+            obj.optString("type", "").ifBlank {
+                obj.optString("salaryType", "Monthly")
+            }
+        }
+
         return Worker(
-            id = optFlexibleLong(obj, "id", 0L),
+            id = optFlexibleLong(obj, "id", optFlexibleLong(obj, "workerId", 0L)),
             name = name,
-            phone = obj.optString("phone", "").trim(),
-            wageType = obj.optString("wageType", "Monthly"),
-            wageRate = optFlexibleDouble(obj, "wageRate", 0.0),
+            phone = phone,
+            wageType = wageType,
+            wageRate = optFlexibleDouble(obj, "wageRate", optFlexibleDouble(obj, "salary", optFlexibleDouble(obj, "rate", 0.0))),
             overtimeRate = optFlexibleDouble(obj, "overtimeRate", 0.0),
-            upiId = obj.optString("upiId", ""),
+            upiId = obj.optString("upiId", "").ifBlank { obj.optString("upi", "") },
             hajariMultiplier = obj.optString("hajariMultiplier", "Off"),
             overtimeMultiplier = obj.optString("overtimeMultiplier", "1.5x"),
             lateFine = optFlexibleDouble(obj, "lateFine", 0.0),

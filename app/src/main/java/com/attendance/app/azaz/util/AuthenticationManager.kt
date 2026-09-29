@@ -123,24 +123,6 @@ class AuthenticationManager(
         } catch (e: Exception) {
             Log.e(TAG, "Error attaching auth state listener", e)
         }
-
-        // Pre-seed demo / default credentials so user can test and login immediately
-        try {
-            authPrefs.edit()
-                .putString("phone_9100000000", "9100000000@attendanceapp.com")
-                .putString("pwd_9100000000", "123456")
-                .putString("name_9100000000", "Demo")
-                .putString("company_9100000000", "Demo Company")
-                // Keep backward compatibility
-                .putString("phone_9876543210", "9100000000@attendanceapp.com")
-                .putString("pwd_9876543210", "123456")
-                .putString("name_9876543210", "Demo")
-                .putString("company_9876543210", "Demo Company")
-                .putString("pwd_azazmadkiya@gmail.com", "123456")
-                .putString("name_azazmadkiya@gmail.com", "Demo")
-                .putString("company_azazmadkiya@gmail.com", "Demo Company")
-                .apply()
-        } catch (_: Exception) {}
     }
 
     /**
@@ -260,6 +242,7 @@ class AuthenticationManager(
         passwordOrPin: String,
         email: String = ""
     ): AuthResult {
+        val currentAuth = auth ?: return AuthResult.Error("Firebase Authentication is not available.")
         val cleanPhone = phone.filter { it.isDigit() }.trim()
         val authEmail = if (email.isNotBlank() && email.contains("@")) {
             email.trim().lowercase()
@@ -267,83 +250,50 @@ class AuthenticationManager(
             "${cleanPhone}@$EMAIL_DOMAIN"
         }
 
-        var firebaseUser: FirebaseUser? = null
-
-        try {
-            val result = auth?.createUserWithEmailAndPassword(authEmail, passwordOrPin)?.await()
-            firebaseUser = result?.user
-            if (firebaseUser != null && email.isNotBlank() && email.contains("@")) {
+        return try {
+            val result = currentAuth.createUserWithEmailAndPassword(authEmail, passwordOrPin).await()
+            val firebaseUser = result?.user ?: return AuthResult.Error("Failed to create Firebase user.")
+            
+            if (email.isNotBlank() && email.contains("@")) {
                 try {
                     firebaseUser.sendEmailVerification().await()
-                    Log.d(TAG, "Firebase verification email sent automatically to $authEmail")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Initial email verification send warning: ${e.message}")
-                }
+                } catch (_: Exception) {}
             }
-        } catch (e: FirebaseAuthUserCollisionException) {
-            Log.w(TAG, "Account already exists for $authEmail. Attempting auto-login...")
+
             try {
-                val signInResult = auth?.signInWithEmailAndPassword(authEmail, passwordOrPin)?.await()
-                firebaseUser = signInResult?.user
-            } catch (signInErr: Exception) {
-                Log.w(TAG, "Auto-login failed: ${signInErr.message}")
-            }
-        } catch (e: FirebaseAuthWeakPasswordException) {
-            return AuthResult.Error("Password must be at least 6 characters long.")
-        } catch (e: Exception) {
-            Log.w(TAG, "Firebase createUserWithEmailAndPassword exception (${e.message}), attempting anonymous fallback...")
-            try {
-                val anonResult = auth?.signInAnonymously()?.await()
-                firebaseUser = anonResult?.user
-            } catch (anonErr: Exception) {
-                Log.w(TAG, "Anonymous auth fallback failed: ${anonErr.message}")
-            }
-        }
+                firebaseUser.updateProfile(UserProfileChangeRequest.Builder().setDisplayName(name.trim()).build()).await()
+            } catch (_: Exception) {}
 
-        val user = firebaseUser ?: auth?.currentUser
-        val uid = user?.uid ?: UUID.randomUUID().toString()
+            val userProfile = UserProfile(
+                uid = firebaseUser.uid,
+                companyName = company.trim().ifBlank { "My Business" },
+                managerName = name.trim().ifBlank { "Admin" },
+                phone = cleanPhone,
+                email = if (email.isNotBlank()) email.trim() else authEmail
+            )
 
-        try {
-            user?.updateProfile(UserProfileChangeRequest.Builder().setDisplayName(name.trim()).build())?.await()
-        } catch (_: Exception) {}
-
-        val userProfile = UserProfile(
-            uid = uid,
-            companyName = company.trim().ifBlank { "My Business" },
-            managerName = name.trim().ifBlank { "Admin" },
-            phone = cleanPhone,
-            email = if (email.isNotBlank()) email.trim() else authEmail
-        )
-
-        // Cache registered credentials locally for fast, reliable login
-        authPrefs.edit()
-            .putString("phone_$cleanPhone", authEmail)
-            .putString("pwd_$authEmail", passwordOrPin)
-            .putString("pwd_$cleanPhone", passwordOrPin)
-            .putString("name_$authEmail", userProfile.managerName)
-            .putString("company_$authEmail", userProfile.companyName)
-            .putString("name_$cleanPhone", userProfile.managerName)
-            .putString("company_$cleanPhone", userProfile.companyName)
-            .putString("last_email", authEmail)
-            .apply()
-
-        saveProfileToFirestore(userProfile, authEmail)
-
-        if (user != null) {
-            _currentUserState.value = user
+            saveProfileToFirestore(userProfile, authEmail)
+            _currentUserState.value = firebaseUser
             _authUserInfo.value = getCurrentUserInfo()
-        }
 
-        return AuthResult.Success(user, userProfile)
+            AuthResult.Success(firebaseUser, userProfile)
+        } catch (e: FirebaseAuthWeakPasswordException) {
+            AuthResult.Error("Password must be at least 6 characters long.")
+        } catch (e: FirebaseAuthUserCollisionException) {
+            AuthResult.Error("An account already exists with this email or phone.")
+        } catch (e: Exception) {
+            AuthResult.Error(e.localizedMessage ?: "Sign-up failed. Please check your network or credentials.")
+        }
     }
 
     /**
-     * Signs in with either 10-digit mobile number or email address, and recovers profile from Cloud Firestore or local cache.
+     * Signs in with either 10-digit mobile number or email address, and recovers profile from Cloud Firestore.
      */
     suspend fun loginUserInFirebase(
         phoneOrEmail: String,
         passwordOrPin: String
     ): AuthResult {
+        val currentAuth = auth ?: return AuthResult.Error("Firebase Authentication is not available.")
         val trimmed = phoneOrEmail.trim()
         val authEmail: String
         val cleanPhone = trimmed.filter { it.isDigit() }
@@ -351,68 +301,26 @@ class AuthenticationManager(
         if (trimmed.contains("@")) {
             authEmail = trimmed.lowercase()
         } else {
-            // First check local registered cache for instant lookup
-            val cachedEmail = authPrefs.getString("phone_$cleanPhone", null)
-            val lookedUpEmail = cachedEmail ?: lookupPhoneAuthEmail(cleanPhone)
+            val lookedUpEmail = lookupPhoneAuthEmail(cleanPhone)
             authEmail = lookedUpEmail ?: "${cleanPhone}@$EMAIL_DOMAIN"
         }
 
-        var firebaseUser: FirebaseUser? = null
+        return try {
+            val result = currentAuth.signInWithEmailAndPassword(authEmail, passwordOrPin).await()
+            val firebaseUser = result?.user ?: return AuthResult.Error("Login failed.")
 
-        try {
-            val result = auth?.signInWithEmailAndPassword(authEmail, passwordOrPin)?.await()
-            firebaseUser = result?.user
-        } catch (e: FirebaseAuthInvalidCredentialsException) {
-            // Check local registered password cache
-            val cachedPwd = authPrefs.getString("pwd_$authEmail", null)
-                ?: authPrefs.getString("pwd_$cleanPhone", null)
-            if (cachedPwd != null && cachedPwd == passwordOrPin) {
-                Log.i(TAG, "Validated against local registered password")
-            } else {
-                return AuthResult.Error("Incorrect password. Please verify your password and try again.")
-            }
-        } catch (e: FirebaseAuthInvalidUserException) {
-            // Check if user was registered locally
-            val cachedPwd = authPrefs.getString("pwd_$authEmail", null)
-                ?: authPrefs.getString("pwd_$cleanPhone", null)
-            if (cachedPwd != null && cachedPwd == passwordOrPin) {
-                Log.i(TAG, "User exists in local registered cache")
-            } else {
-                return AuthResult.Error("No account found with this mobile number or email. Please tap Sign-Up to create an account.")
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Firebase login failed (${e.message}), checking local cache or fallback auth...")
-            val cachedPwd = authPrefs.getString("pwd_$authEmail", null)
-                ?: authPrefs.getString("pwd_$cleanPhone", null)
-            if (cachedPwd != null && cachedPwd == passwordOrPin) {
-                Log.i(TAG, "Local credential matched during network glitch")
-            } else {
-                try {
-                    val anonResult = auth?.signInAnonymously()?.await()
-                    firebaseUser = anonResult?.user
-                } catch (_: Exception) {}
-            }
-        }
-
-        val user = firebaseUser ?: auth?.currentUser
-        val profile = if (user != null) {
-            fetchProfileFromFirestore(user.uid, authEmail)
-        } else {
-            UserProfile(
-                uid = UUID.randomUUID().toString(),
-                companyName = authPrefs.getString("company_$authEmail", null) ?: authPrefs.getString("company_$cleanPhone", "My Business") ?: "My Business",
-                managerName = authPrefs.getString("name_$authEmail", null) ?: authPrefs.getString("name_$cleanPhone", "Admin") ?: "Admin",
-                phone = cleanPhone,
-                email = authEmail
-            )
-        }
-
-        if (user != null) {
-            _currentUserState.value = user
+            val profile = fetchProfileFromFirestore(firebaseUser.uid, authEmail)
+            _currentUserState.value = firebaseUser
             _authUserInfo.value = getCurrentUserInfo()
-        }
 
-        return AuthResult.Success(user, profile)
+            AuthResult.Success(firebaseUser, profile)
+        } catch (e: FirebaseAuthInvalidCredentialsException) {
+            AuthResult.Error("Incorrect password. Please verify your password and try again.")
+        } catch (e: FirebaseAuthInvalidUserException) {
+            AuthResult.Error("No account found with this mobile number or email. Please tap Sign-Up to create an account.")
+        } catch (e: Exception) {
+            AuthResult.Error(e.localizedMessage ?: "Login failed. Please verify your credentials.")
+        }
     }
 
     /**
@@ -648,27 +556,22 @@ class AuthenticationManager(
                 }
             }
 
-            val googleEmail = "azazmadkiya@gmail.com"
-            val googleName = "Demo"
-            val googleCompany = "Demo Company"
+            val googleEmail = user?.email ?: ""
+            val googleName = user?.displayName ?: ""
+            val googleCompany = ""
 
             val profile = UserProfile(
                 uid = user?.uid ?: UUID.randomUUID().toString(),
                 companyName = googleCompany,
                 managerName = googleName,
-                phone = "9100000000",
+                phone = "",
                 email = googleEmail
             )
 
             // Cache credentials in local storage
             authPrefs.edit()
-                .putString("phone_9100000000", googleEmail)
-                .putString("pwd_$googleEmail", "123456")
-                .putString("pwd_9100000000", "123456")
                 .putString("name_$googleEmail", googleName)
                 .putString("company_$googleEmail", googleCompany)
-                .putString("name_9100000000", googleName)
-                .putString("company_9100000000", googleCompany)
                 .putString("last_email", googleEmail)
                 .apply()
 
@@ -687,7 +590,7 @@ class AuthenticationManager(
 
         val isNoCred = credentialManagerException is NoCredentialException
         val errorMsg = if (isNoCred) {
-            "No Google account found on this device. Please sign in using Email or Mobile (e.g. 9100000000 / 123456)."
+            "No Google account found on this device. Please sign in using Email or Mobile."
         } else {
             credentialManagerException?.localizedMessage ?: "Google Sign-In failed. Please try Email or Mobile login."
         }

@@ -574,6 +574,33 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
         return result
     }
 
+    suspend fun signInOrRegisterGoogleEmail(email: String): AuthResult {
+        val result = authManager.signInOrRegisterGoogleEmail(email)
+        if (result is AuthResult.Success) {
+            val user = result.user
+            val profile = result.profile
+            val name = profile?.managerName?.ifBlank { user.displayName ?: "User" }
+                ?: user.displayName ?: "User"
+            val company = profile?.companyName?.ifBlank { "My Business" } ?: "My Business"
+            val emailStr = user.email ?: profile?.email ?: email
+            val phone = profile?.phone ?: ""
+
+            prefs.edit()
+                .putBoolean("is_logged_in", true)
+                .putString("user_name", name)
+                .putString("company_name", company)
+                .putString("user_email", emailStr)
+                .putString("user_phone", phone)
+                .apply()
+            isLoggedIn.value = true
+            loggedInUserName.value = name
+            loggedInCompanyName.value = company
+            loggedInEmail.value = emailStr
+            if (phone.isNotBlank()) loggedInPhone.value = phone
+        }
+        return result
+    }
+
     // Backup & Restore
     suspend fun getFullBackupJson(): String {
         val data = repository.getAllDataForBackup()

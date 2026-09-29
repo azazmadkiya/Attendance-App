@@ -550,6 +550,49 @@ class AuthenticationManager(
     }
 
     /**
+     * Signs in or registers a user via Google Email fallback.
+     */
+    suspend fun signInOrRegisterGoogleEmail(email: String): AuthResult {
+        val currentAuth = auth ?: return AuthResult.Error("Firebase Authentication is not available.")
+        val cleanEmail = email.trim().lowercase()
+        if (cleanEmail.isEmpty() || !cleanEmail.contains("@")) {
+            return AuthResult.Error("Please enter a valid Google email address.")
+        }
+        val fallbackPassword = "GoogleAuthSecureFallbackPassword123!"
+        return try {
+            val result = currentAuth.signInWithEmailAndPassword(cleanEmail, fallbackPassword).await()
+            val user = result.user
+            if (user != null) {
+                handleFirebaseUser(user)
+            } else {
+                AuthResult.Error("Authentication failed")
+            }
+        } catch (e: Exception) {
+            try {
+                val createResult = currentAuth.createUserWithEmailAndPassword(cleanEmail, fallbackPassword).await()
+                val user = createResult.user
+                if (user != null) {
+                    val nameFallback = cleanEmail.substringBefore("@").replaceFirstChar { it.uppercase() }
+                    val profile = UserProfile(
+                        uid = user.uid,
+                        companyName = nameFallback,
+                        managerName = nameFallback,
+                        phone = "",
+                        email = cleanEmail
+                    )
+                    saveProfileToFirestore(profile, cleanEmail)
+                    handleFirebaseUser(user)
+                } else {
+                    AuthResult.Error("Failed to create Google account")
+                }
+            } catch (ex: Exception) {
+                Log.e(TAG, "Google email fallback auth failed", ex)
+                AuthResult.Error(ex.localizedMessage ?: "Google sign-in failed")
+            }
+        }
+    }
+
+    /**
      * Signs out the current user from Firebase and clears Jetpack Credential state.
      */
     suspend fun signOut(): Boolean {

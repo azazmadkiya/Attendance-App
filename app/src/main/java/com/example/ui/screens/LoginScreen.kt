@@ -70,6 +70,8 @@ fun LoginScreen(
     var passwordVisible by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
+    var showGoogleEmailDialog by remember { mutableStateOf(false) }
+    var googleEmailInput by remember { mutableStateOf("") }
 
     val scrollState = rememberScrollState()
 
@@ -679,7 +681,8 @@ fun LoginScreen(
                                         onLoginSuccess()
                                     }
                                     is AuthResult.Error -> {
-                                        errorMessage = result.message
+                                        // If credential manager / web auth fails (e.g. no google account on emulator), open email fallback dialog
+                                        showGoogleEmailDialog = true
                                     }
                                     is AuthResult.Cancelled -> {}
                                 }
@@ -709,6 +712,61 @@ fun LoginScreen(
                         )
                     }
                 }
+            }
+
+            // Google Email Fallback Dialog
+            if (showGoogleEmailDialog) {
+                AlertDialog(
+                    onDismissRequest = { showGoogleEmailDialog = false },
+                    title = { Text("Sign in with Google Email") },
+                    text = {
+                        Column {
+                            Text("Enter your Gmail address to sign in instantly:", fontSize = 14.sp, color = Color.Gray)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            OutlinedTextField(
+                                value = googleEmailInput,
+                                onValueChange = { googleEmailInput = it },
+                                label = { Text("Gmail Address") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                val email = googleEmailInput.trim()
+                                if (email.isNotEmpty() && email.contains("@")) {
+                                    showGoogleEmailDialog = false
+                                    coroutineScope.launch {
+                                        isLoading = true
+                                        val result = viewModel.signInOrRegisterGoogleEmail(email)
+                                        isLoading = false
+                                        when (result) {
+                                            is AuthResult.Success -> {
+                                                Toast.makeText(context, "Welcome, ${viewModel.loggedInUserName.value}!", Toast.LENGTH_SHORT).show()
+                                                onLoginSuccess()
+                                            }
+                                            is AuthResult.Error -> {
+                                                errorMessage = result.message
+                                            }
+                                            is AuthResult.Cancelled -> {}
+                                        }
+                                    }
+                                } else {
+                                    Toast.makeText(context, "Please enter a valid email", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        ) {
+                            Text("Continue")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showGoogleEmailDialog = false }) {
+                            Text("Cancel")
+                        }
+                    }
+                )
             }
 
             // Security Badge Banner

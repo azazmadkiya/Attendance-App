@@ -71,6 +71,7 @@ jobs:
           JAVA_TOOL_OPTIONS: "-Djava.awt.headless=true -Xmx4096m"
           GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
         run: |
+          chmod +x gradlew
           echo "=== Building Debug APK ==="
           ./gradlew :app:assembleDebug --stacktrace --no-daemon
 

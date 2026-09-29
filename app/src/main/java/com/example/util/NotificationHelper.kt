@@ -12,7 +12,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.MainActivity
-import com.example.R
+import com.attendance.app.azaz.R
 
 object NotificationHelper {
     const val CHANNEL_ID_REMINDERS = "haazri_daily_reminders"

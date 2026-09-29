@@ -1,0 +1,159 @@
+name: Build & Release APK & AAB (Both)
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Release APK and AAB
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 'wrapper'
+
+      - name: Setup Keystores & Environment
+        run: |
+          echo "=== Setup Keystores ==="
+          if [ ! -f "./debug.keystore" ]; then
+            keytool -genkey -v \
+              -keystore ./debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -dname "CN=Android Debug,O=Android,C=US" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000
+          fi
+          mkdir -p ~/.android
+          cp debug.keystore ~/.android/debug.keystore || true
+          cp debug.keystore app/debug.keystore || true
+
+          if [ -n "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
+            echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > ./release.keystore
+          elif [ -f "./release.keystore.base64" ]; then
+            base64 --decode ./release.keystore.base64 > ./release.keystore
+          elif [ -f "./release.keystore" ]; then
+            echo "Existing release.keystore found."
+          else
+            keytool -genkey -v \
+              -keystore ./release.keystore \
+              -storepass androidrelease \
+              -alias releasekey \
+              -keypass androidrelease \
+              -dname "CN=Android Release,O=Android,C=US" \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000
+          fi
+
+      - name: Build Debug APK & Release AAB
+        env:
+          JAVA_TOOL_OPTIONS: "-Djava.awt.headless=true -Xmx4096m"
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m"
+        run: |
+          echo "=== Building Debug APK ==="
+          ./gradlew :app:assembleDebug --stacktrace --no-daemon
+
+          echo "=== Building Release AAB ==="
+          ./gradlew :app:bundleRelease --stacktrace --no-daemon
+
+      - name: Verify APK and AAB Output
+        run: |
+          echo "=== Verifying Build Outputs ==="
+          APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+          AAB_PATH="app/build/outputs/bundle/release/app-release.aab"
+
+          if [ ! -f "$APK_PATH" ]; then
+            echo "ERROR: Debug APK not found at $APK_PATH!" >&2
+            exit 1
+          fi
+
+          if [ ! -f "$AAB_PATH" ]; then
+            echo "ERROR: Release AAB not found at $AAB_PATH!" >&2
+            exit 1
+          fi
+
+          echo "APK Verified: $APK_PATH ($(stat -c%s "$APK_PATH" 2>/dev/null || stat -f%z "$APK_PATH") bytes)"
+          echo "AAB Verified: $AAB_PATH ($(stat -c%s "$AAB_PATH" 2>/dev/null || stat -f%z "$AAB_PATH") bytes)"
+
+      - name: Upload Artifacts (APK & AAB)
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-apk-and-aab-bundle
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Prepare Release Assets
+        id: prepare_assets
+        run: |
+          TEMP_DIR=$(mktemp -d)
+          
+          REPO_RAW="${GITHUB_REPOSITORY#*/}"
+          REPO_CLEAN=$(echo "$REPO_RAW" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | sed 's/^-//;s/-$//')
+          if [ -z "$REPO_CLEAN" ]; then
+            REPO_CLEAN="app"
+          fi
+
+          APK_DEST="${TEMP_DIR}/${REPO_CLEAN}-debug-build-${GITHUB_RUN_NUMBER}.apk"
+          AAB_DEST="${TEMP_DIR}/${REPO_CLEAN}-release-build-${GITHUB_RUN_NUMBER}.aab"
+
+          cp "app/build/outputs/apk/debug/app-debug.apk" "$APK_DEST"
+          cp "app/build/outputs/bundle/release/app-release.aab" "$AAB_DEST"
+
+          echo "apk_path=$APK_DEST" >> "$GITHUB_OUTPUT"
+          echo "aab_path=$AAB_DEST" >> "$GITHUB_OUTPUT"
+          echo "apk_name=$(basename "$APK_DEST")" >> "$GITHUB_OUTPUT"
+          echo "aab_name=$(basename "$AAB_DEST")" >> "$GITHUB_OUTPUT"
+
+      - name: Publish Both APK and AAB to GitHub Releases
+        id: create_release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          APK_PATH="${{ steps.prepare_assets.outputs.apk_path }}"
+          AAB_PATH="${{ steps.prepare_assets.outputs.aab_path }}"
+          
+          RELEASE_TAG="apk-aab-build-${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}"
+          RELEASE_TITLE="App Build #${GITHUB_RUN_NUMBER} (APK & AAB)"
+
+          NOTES=$(cat <<EOF
+          ## Android App Build #${GITHUB_RUN_NUMBER} (Both APK & AAB) 📱📦
+
+          This release includes **both** file formats generated automatically:
+          - 📱 **Android App (APK):** `app-debug.apk` (Ready for direct installation & testing on your Android phone)
+          - 📦 **Android App Bundle (AAB):** `app-release.aab` (Ready for Google Play Console upload)
+
+          - **Build System:** GitHub Actions
+          - **Commit:** ${GITHUB_SHA}
+          EOF
+          )
+
+          gh release create "$RELEASE_TAG" "$APK_PATH" "$AAB_PATH" \
+            --title "$RELEASE_TITLE" \
+            --notes "$NOTES" \
+            --target "$GITHUB_SHA" \
+            --latest

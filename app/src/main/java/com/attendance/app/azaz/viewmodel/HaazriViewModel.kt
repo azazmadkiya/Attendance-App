@@ -75,7 +75,7 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
     val selectedDate = MutableStateFlow(dateFormat.format(Date()))
 
-    val attendanceMode = MutableStateFlow("GRID")
+    val attendanceMode = MutableStateFlow("List")
     val rollCallIndex = MutableStateFlow(0)
     val isAmountsHidden = MutableStateFlow(false)
 

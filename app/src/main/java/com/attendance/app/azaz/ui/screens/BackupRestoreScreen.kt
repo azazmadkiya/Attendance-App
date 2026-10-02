@@ -175,7 +175,10 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
                             } else msg
                             restoreStatusMessage = displayMsg
                             Toast.makeText(context, displayMsg, Toast.LENGTH_LONG).show()
-                            refreshLocalBackups()
+                            if (success) {
+                                refreshLocalBackups()
+                                viewModel.setTab(com.attendance.app.azaz.viewmodel.AppTab.ATTENDANCE)
+                            }
                         }
                     } else {
                         withContext(Dispatchers.Main) {
@@ -344,6 +347,10 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
                                     } else msg
                                     restoreStatusMessage = displayMsg
                                     Toast.makeText(context, displayMsg, Toast.LENGTH_LONG).show()
+                                    if (success) {
+                                        refreshLocalBackups()
+                                        viewModel.setTab(com.attendance.app.azaz.viewmodel.AppTab.ATTENDANCE)
+                                    }
                                 }
                             } catch (e: Exception) {
                                 withContext(Dispatchers.Main) {
@@ -427,6 +434,7 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
                                 showPasteJsonDialog = false
                                 jsonPasteInput = ""
                                 refreshLocalBackups()
+                                viewModel.setTab(com.attendance.app.azaz.viewmodel.AppTab.ATTENDANCE)
                             }
                         }
                     },

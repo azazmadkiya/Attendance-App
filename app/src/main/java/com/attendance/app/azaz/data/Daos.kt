@@ -14,6 +14,9 @@ interface WorkerDao {
     @Query("SELECT * FROM workers WHERE id = :id")
     fun getWorkerById(id: Long): Flow<Worker?>
 
+    @Query("SELECT * FROM workers WHERE id = :id LIMIT 1")
+    suspend fun getWorkerByIdSync(id: Long): Worker?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertWorker(worker: Worker): Long
 

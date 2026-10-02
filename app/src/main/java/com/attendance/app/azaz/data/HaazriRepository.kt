@@ -112,54 +112,43 @@ class HaazriRepository(
         clearExisting: Boolean
     ) {
         db.withTransaction {
+            val finalWorkers = workers.toMutableList()
+            if (finalWorkers.isEmpty()) {
+                val referencedWorkerIds = (attendanceRecords.map { it.workerId } + cashbookEntries.mapNotNull { it.workerId }).distinct()
+                for (wId in referencedWorkerIds) {
+                    if (wId > 0) {
+                        finalWorkers.add(Worker(id = wId, name = "Restored Worker #$wId", wageType = "Monthly", wageRate = 0.0))
+                    }
+                }
+            }
+
             val workerIdMap = mutableMapOf<Long, Long>()
             if (clearExisting) {
                 db.cashbookDao().deleteAllCashbookEntries()
                 db.attendanceDao().deleteAllAttendanceRecords()
                 db.workerDao().deleteAllWorkers()
 
-                // Overwrite mode: insert each worker freshly to obtain verified clean IDs
-                workers.forEach { worker ->
+                finalWorkers.forEach { worker ->
                     val assignedId = db.workerDao().insertWorker(worker.copy(id = 0))
                     if (worker.id != 0L) {
                         workerIdMap[worker.id] = assignedId
                     }
                     workerIdMap[assignedId] = assignedId
                 }
-
-                // Insert attendance records with remapped worker IDs
-                attendanceRecords.forEach { record ->
-                    val remappedWorkerId = workerIdMap[record.workerId] ?: record.workerId
-                    db.attendanceDao().insertOrUpdateAttendance(
-                        record.copy(id = 0, workerId = remappedWorkerId)
-                    )
-                }
-
-                // Insert cashbook entries with remapped worker IDs
-                cashbookEntries.forEach { entry ->
-                    val remappedWorkerId = entry.workerId?.let { workerIdMap[it] ?: it }
-                    db.cashbookDao().insertEntry(
-                        entry.copy(id = 0, workerId = remappedWorkerId)
-                    )
-                }
             } else {
-                // Merge mode: check existing workers to prevent duplicate creation
                 val existingWorkers = db.workerDao().getAllWorkersList()
-
-                workers.forEach { worker ->
+                finalWorkers.forEach { worker ->
                     val existing = existingWorkers.find {
                         (it.phone.isNotBlank() && it.phone == worker.phone) ||
                         (it.name.equals(worker.name, ignoreCase = true) && it.wageType == worker.wageType)
                     }
 
                     if (existing != null) {
-                        // Re-use existing worker id
                         if (worker.id != 0L) {
                             workerIdMap[worker.id] = existing.id
                         }
                         workerIdMap[existing.id] = existing.id
                     } else {
-                        // New worker: insert with new auto-generated ID
                         val newId = db.workerDao().insertWorker(worker.copy(id = 0))
                         if (worker.id != 0L) {
                             workerIdMap[worker.id] = newId
@@ -167,10 +156,22 @@ class HaazriRepository(
                         workerIdMap[newId] = newId
                     }
                 }
+            }
 
-                // Merge attendance records without duplicating same date for same worker
-                attendanceRecords.forEach { record ->
-                    val remappedWorkerId = workerIdMap[record.workerId] ?: record.workerId
+            // Insert attendance records with remapped worker IDs and safety check
+            attendanceRecords.forEach { record ->
+                var remappedWorkerId = workerIdMap[record.workerId] ?: record.workerId
+                if (db.workerDao().getWorkerByIdSync(remappedWorkerId) == null) {
+                    remappedWorkerId = db.workerDao().insertWorker(
+                        Worker(name = "Worker #${record.workerId}", wageType = "Monthly", wageRate = 0.0)
+                    )
+                }
+
+                if (clearExisting) {
+                    db.attendanceDao().insertOrUpdateAttendance(
+                        record.copy(id = 0, workerId = remappedWorkerId)
+                    )
+                } else {
                     val existingRecord = db.attendanceDao().getRecordForWorkerAndDate(remappedWorkerId, record.date)
                     if (existingRecord == null) {
                         db.attendanceDao().insertOrUpdateAttendance(
@@ -178,14 +179,22 @@ class HaazriRepository(
                         )
                     }
                 }
+            }
 
-                // Merge cashbook entries
-                cashbookEntries.forEach { entry ->
-                    val remappedWorkerId = entry.workerId?.let { workerIdMap[it] ?: it }
-                    db.cashbookDao().insertEntry(
-                        entry.copy(id = 0, workerId = remappedWorkerId)
-                    )
+            // Insert cashbook entries with remapped worker IDs and safety check
+            cashbookEntries.forEach { entry ->
+                val remappedWorkerId = entry.workerId?.let { originalId ->
+                    var mapped = workerIdMap[originalId] ?: originalId
+                    if (db.workerDao().getWorkerByIdSync(mapped) == null) {
+                        mapped = db.workerDao().insertWorker(
+                            Worker(name = "Worker #$originalId", wageType = "Monthly", wageRate = 0.0)
+                        )
+                    }
+                    mapped
                 }
+                db.cashbookDao().insertEntry(
+                    entry.copy(id = 0, workerId = remappedWorkerId)
+                )
             }
 
             if (notificationSetting != null) {

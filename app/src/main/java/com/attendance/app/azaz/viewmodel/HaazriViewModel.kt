@@ -330,6 +330,17 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
                     notificationSetting = backupData.notificationSetting,
                     clearExisting = clearExisting
                 )
+
+                val latestDate = backupData.attendanceRecords.maxByOrNull { it.date }?.date
+                if (!latestDate.isNullOrBlank()) {
+                    selectedDate.value = latestDate
+                    try {
+                        if (latestDate.length >= 7) {
+                            selectedMonthYear.value = latestDate.substring(0, 7)
+                        }
+                    } catch (_: Exception) {}
+                }
+
                 withContext(Dispatchers.Main) {
                     val summary = "Successfully restored ${backupData.workers.size} workers and ${backupData.attendanceRecords.size} attendance records!"
                     onComplete(true, summary)

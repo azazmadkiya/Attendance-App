@@ -448,7 +448,10 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
                         Text(currentWorker.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
                         val dailyBaseRate = viewModel.calculateDailyBaseRate(currentWorker, selectedFilterMonth)
                         val rateSubtext = if (currentWorker.wageType.equals("Monthly", ignoreCase = true) || currentWorker.wageType.equals("Weekly", ignoreCase = true)) {
-                            " (${viewModel.maskAmount(dailyBaseRate)}/day)"
+                            val basisTag = if (currentWorker.wageType.equals("Monthly", ignoreCase = true)) {
+                                if (currentWorker.monthlyWageBasis.contains("Calendar", ignoreCase = true)) " · Prorated" else " · /30d"
+                            } else ""
+                            " (${viewModel.maskAmount(dailyBaseRate)}/day$basisTag)"
                         } else ""
                         Text("${currentWorker.wageType} Wage: ${viewModel.maskAmount(currentWorker.wageRate)}$rateSubtext", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E3A8A))
                     }
@@ -1267,6 +1270,7 @@ fun ModifyWorkerDialog(
     var phone by remember { mutableStateOf(worker.phone) }
     var wageType by remember { mutableStateOf(worker.wageType) }
     var wageRate by remember { mutableStateOf(if (worker.wageRate > 0) worker.wageRate.toInt().toString() else "") }
+    var monthlyWageBasis by remember { mutableStateOf(worker.monthlyWageBasis.ifBlank { "Fixed 30 Days" }) }
     var overtimeRate by remember { mutableStateOf(if (worker.overtimeRate > 0) worker.overtimeRate.toInt().toString() else "") }
     var upiId by remember { mutableStateOf(worker.upiId) }
     var notes by remember { mutableStateOf(worker.notes) }
@@ -1440,6 +1444,71 @@ fun ModifyWorkerDialog(
                         .testTag("edit_worker_wage_input")
                 )
 
+                // Monthly Calculation Options (Fixed 30 Days vs Calendar Month Days)
+                if (wageType == "Monthly") {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Monthly Calculation Option", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Color(0xFF334155))
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    val basisOptions = listOf(
+                        Triple(
+                            "Fixed 30 Days",
+                            "Monthly Wage: /30 Days (Fixed)",
+                            "Har mahine fixed 30 din ke hisab se daily rate (Wage ÷ 30)"
+                        ),
+                        Triple(
+                            "Calendar Month Days",
+                            "Prorated: Calendar Days (31/30/28)",
+                            "Mahine ke total din ke mutabiq rate (Oct me 31, Feb me 28/29. Poore mahine par exact salary)"
+                        )
+                    )
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        basisOptions.forEach { (basisKey, title, desc) ->
+                            val isSelected = monthlyWageBasis == basisKey
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { monthlyWageBasis = basisKey },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) Color(0xFFEFF6FF) else Color.White
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    width = if (isSelected) 1.5.dp else 1.dp,
+                                    color = if (isSelected) Color(0xFF253B80) else Color(0xFFE2E8F0)
+                                )
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = { monthlyWageBasis = basisKey },
+                                        colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF253B80))
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = title,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp,
+                                            color = if (isSelected) Color(0xFF1E3A8A) else Color(0xFF1E293B)
+                                        )
+                                        Text(
+                                            text = desc,
+                                            fontSize = 10.sp,
+                                            color = Color(0xFF64748B),
+                                            lineHeight = 14.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(12.dp))
 
                 // Overtime Rate
@@ -1599,6 +1668,7 @@ fun ModifyWorkerDialog(
                         phone = phone.trim(),
                         wageType = wageType,
                         wageRate = parsedWageRate,
+                        monthlyWageBasis = monthlyWageBasis,
                         overtimeRate = parsedOvertimeRate,
                         upiId = upiId.trim(),
                         hajariMultiplier = hajariMultiplier,

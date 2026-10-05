@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -38,6 +39,7 @@ fun AddWorkerScreen(
     var phone by remember { mutableStateOf(initialPhone) }
     var wageType by remember { mutableStateOf("Monthly") }
     var wageRate by remember { mutableStateOf("") }
+    var monthlyWageBasis by remember { mutableStateOf("Fixed 30 Days") }
     var overtimeRate by remember { mutableStateOf("") }
     var upiId by remember { mutableStateOf("") }
 
@@ -154,6 +156,72 @@ fun AddWorkerScreen(
                 .fillMaxWidth()
                 .testTag("worker_wage_input")
         )
+
+        // Monthly Calculation Options (Both Fixed 30 Days and Prorated Calendar Days)
+        if (wageType == "Monthly") {
+            Spacer(modifier = Modifier.height(14.dp))
+            Text("Monthly Calculation Option", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF334155))
+            Spacer(modifier = Modifier.height(6.dp))
+
+            val basisOptions = listOf(
+                Triple(
+                    "Fixed 30 Days",
+                    "Monthly Wage: /30 Days (Fixed)",
+                    "Har mahine fixed 30 din ke hisab se daily rate (Wage ÷ 30)"
+                ),
+                Triple(
+                    "Calendar Month Days",
+                    "Prorated: Calendar Days (31/30/28)",
+                    "Mahine ke total din ke mutabiq rate (Oct me 31, Feb me 28/29. Poore mahine par exact salary)"
+                )
+            )
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                basisOptions.forEach { (basisKey, title, desc) ->
+                    val isSelected = monthlyWageBasis == basisKey
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { monthlyWageBasis = basisKey },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSelected) Color(0xFFEFF6FF) else Color.White
+                        ),
+                        border = BorderStroke(
+                            width = if (isSelected) 1.5.dp else 1.dp,
+                            color = if (isSelected) Color(0xFF253B80) else Color(0xFFE2E8F0)
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = { monthlyWageBasis = basisKey },
+                                colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF253B80))
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = title,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = if (isSelected) Color(0xFF1E3A8A) else Color(0xFF1E293B)
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = desc,
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF64748B),
+                                    lineHeight = 15.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(14.dp))
 
@@ -337,6 +405,7 @@ fun AddWorkerScreen(
                         phone = phone,
                         wageType = wageType,
                         wageRate = wageRate.toDoubleOrNull() ?: 0.0,
+                        monthlyWageBasis = monthlyWageBasis,
                         overtimeRate = overtimeRate.toDoubleOrNull() ?: 0.0,
                         upiId = upiId,
                         hajariMultiplier = hajariMultiplier,
@@ -350,6 +419,7 @@ fun AddWorkerScreen(
                     name = ""
                     phone = ""
                     wageRate = ""
+                    monthlyWageBasis = "Fixed 30 Days"
                 }
             },
             shape = RoundedCornerShape(24.dp),
@@ -372,6 +442,7 @@ fun AddWorkerScreen(
                         phone = phone,
                         wageType = wageType,
                         wageRate = wageRate.toDoubleOrNull() ?: 0.0,
+                        monthlyWageBasis = monthlyWageBasis,
                         overtimeRate = overtimeRate.toDoubleOrNull() ?: 0.0,
                         upiId = upiId,
                         hajariMultiplier = hajariMultiplier,

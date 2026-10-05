@@ -39,11 +39,21 @@ object WageCalculator {
      * Calculates the daily wage base rate based on worker wage configuration.
      */
     fun calculateDailyBaseRate(worker: Worker): Double {
-        return when (worker.wageType) {
-            "Daily" -> worker.wageRate
-            "Weekly" -> worker.wageRate / 7.0
-            "Monthly" -> worker.wageRate / 30.0
-            else -> worker.wageRate
+        val type = worker.wageType.trim().lowercase()
+        return when {
+            type == "daily" -> worker.wageRate
+            type == "weekly" -> worker.wageRate / 7.0
+            type == "monthly" -> {
+                val basis = worker.monthlyWageBasis.trim().lowercase()
+                if (basis.contains("calendar") || basis.contains("prorated") || basis.contains("actual")) {
+                    val cal = java.util.Calendar.getInstance()
+                    val days = cal.getActualMaximum(java.util.Calendar.DAY_OF_MONTH).toDouble()
+                    worker.wageRate / days
+                } else {
+                    worker.wageRate / 30.0
+                }
+            }
+            else -> worker.wageRate / 30.0
         }
     }
 

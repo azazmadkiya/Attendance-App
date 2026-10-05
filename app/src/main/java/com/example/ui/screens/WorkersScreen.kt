@@ -276,7 +276,10 @@ fun WorkerCard(
                 Spacer(modifier = Modifier.height(2.dp))
                 val wageRateStr = if (isAmountsHidden) "₹••••" else "₹${worker.wageRate.toInt()}"
                 val wageText = when (worker.wageType) {
-                    "Monthly" -> "Monthly · $wageRateStr/mo"
+                    "Monthly" -> {
+                        val basisLabel = if (worker.monthlyWageBasis.contains("Calendar", ignoreCase = true)) "Prorated" else "30d"
+                        "Monthly ($basisLabel) · $wageRateStr/mo"
+                    }
                     "Daily" -> "Daily · $wageRateStr/day"
                     else -> "Weekly · $wageRateStr/wk"
                 }

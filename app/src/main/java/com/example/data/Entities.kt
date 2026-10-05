@@ -10,6 +10,7 @@ data class Worker(
     val phone: String = "",
     val wageType: String = "Monthly", // Daily, Weekly, Monthly
     val wageRate: Double = 0.0,
+    val monthlyWageBasis: String = "Fixed 30 Days", // "Fixed 30 Days", "Calendar Month Days"
     val overtimeRate: Double = 0.0,
     val upiId: String = "",
     val hajariMultiplier: String = "Off", // Off, 2x, 3.5x, 4.75x, Custom

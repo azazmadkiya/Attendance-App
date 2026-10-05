@@ -694,7 +694,12 @@ fun RollCallCard(
             val customStr = if (isAmountsHidden) "₹••••" else "₹${currentRecord.customAmount.toInt()}"
             " · Manual: $customStr"
         } else ""
-        Text("$wageRateStr/mo · $statusText$customAmtText", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF16A34A))
+        val rateUnit = when (worker.wageType.trim().lowercase()) {
+            "daily" -> "/day"
+            "weekly" -> "/wk"
+            else -> "/mo"
+        }
+        Text("$wageRateStr$rateUnit · $statusText$customAmtText", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF16A34A))
 
         Spacer(modifier = Modifier.height(20.dp))
 

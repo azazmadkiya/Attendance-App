@@ -11,21 +11,33 @@ val Double.netDailyWage: Double get() = this
 
 object WageCalculator {
 
+    const val BASIS_30_DAYS = "Fixed 30 Days"
+    const val BASIS_CALENDAR_DAYS = "Calendar Month Days"
+
     /**
-     * Calculates the daily base rate for a worker according to their wage type:
+     * Calculates the daily base rate for a worker according to their wage type and monthly basis:
      * - Daily: wageRate directly
      * - Weekly: wageRate / 7.0
-     * - Monthly: wageRate / daysInMonth (e.g. 31 in Oct, 30 in Sep, 28/29 in Feb, default 30.0)
+     * - Monthly:
+     *     - If basis is "Calendar Month Days" / "Prorated": wageRate / daysInMonth (e.g. 31 in Oct, 30 in Sep, 28/29 in Feb)
+     *     - If basis is "Fixed 30 Days" (or default): wageRate / 30.0
      */
     fun calculateDailyBaseRate(worker: Worker, dateOrMonth: String = ""): Double {
-        return when (worker.wageType.trim()) {
-            "Daily" -> worker.wageRate
-            "Weekly" -> worker.wageRate / 7.0
-            "Monthly" -> {
-                val daysInMonth = getDaysInMonth(dateOrMonth)
-                worker.wageRate / daysInMonth
+        val type = worker.wageType.trim().lowercase()
+        return when {
+            type == "daily" -> worker.wageRate
+            type == "weekly" -> worker.wageRate / 7.0
+            type == "monthly" -> {
+                val basis = worker.monthlyWageBasis.trim().lowercase()
+                if (basis.contains("calendar") || basis.contains("prorated") || basis.contains("actual")) {
+                    val days = getDaysInMonth(dateOrMonth)
+                    worker.wageRate / days
+                } else {
+                    // Default Fixed 30 Days
+                    worker.wageRate / 30.0
+                }
             }
-            else -> worker.wageRate
+            else -> worker.wageRate / 30.0
         }
     }
 
@@ -34,10 +46,13 @@ object WageCalculator {
     }
 
     /**
-     * Returns the actual number of days in the specified month (or date) or 30.0 as fallback.
+     * Returns the actual number of calendar days in the specified month (or date) or 30.0 as fallback.
      */
-    fun getDaysInMonth(dateOrMonth: String): Double {
-        if (dateOrMonth.isBlank()) return 30.0
+    fun getDaysInMonth(dateOrMonth: String = ""): Double {
+        if (dateOrMonth.isBlank()) {
+            val cal = Calendar.getInstance()
+            return cal.getActualMaximum(Calendar.DAY_OF_MONTH).toDouble()
+        }
         return try {
             val parts = dateOrMonth.split("-")
             if (parts.size >= 2) {

@@ -43,6 +43,7 @@ object BackupManager {
             obj.put("phone", w.phone)
             obj.put("wageType", w.wageType)
             obj.put("wageRate", w.wageRate)
+            obj.put("monthlyWageBasis", w.monthlyWageBasis)
             obj.put("overtimeRate", w.overtimeRate)
             obj.put("upiId", w.upiId)
             obj.put("hajariMultiplier", w.hajariMultiplier)
@@ -341,6 +342,7 @@ object BackupManager {
             phone = obj.optString("phone", "").trim(),
             wageType = obj.optString("wageType", "Monthly"),
             wageRate = optFlexibleDouble(obj, "wageRate", 0.0),
+            monthlyWageBasis = obj.optString("monthlyWageBasis", "Fixed 30 Days").ifBlank { "Fixed 30 Days" },
             overtimeRate = optFlexibleDouble(obj, "overtimeRate", 0.0),
             upiId = obj.optString("upiId", ""),
             hajariMultiplier = obj.optString("hajariMultiplier", "Off"),

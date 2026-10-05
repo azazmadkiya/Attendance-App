@@ -1055,6 +1055,93 @@ fun BackupRestoreScreen(viewModel: HaazriViewModel) {
             }
         }
 
+        Spacer(modifier = Modifier.height(18.dp))
+
+        // SECTION 4: FIREBASE CLOUD BACKUP & CROSS-DEVICE MIGRATION
+        Text(
+            text = "Firebase Cloud Backup & Migration",
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF64748B),
+            modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+        )
+
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    text = "Sync your staff, attendance, and ledger entries to Firebase Cloud. Easily migrate and restore your data when switching to a new device.",
+                    fontSize = 12.sp,
+                    color = Color(0xFF475569)
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Button: Backup to Firebase Cloud
+                Button(
+                    onClick = {
+                        isOperating = true
+                        coroutineScope.launch(Dispatchers.IO) {
+                            val result = viewModel.saveBackupToCloudNow()
+                            withContext(Dispatchers.Main) {
+                                isOperating = false
+                                val msg = result.getOrNull() ?: result.exceptionOrNull()?.localizedMessage ?: "Cloud backup failed"
+                                isSuccessStatus = result.isSuccess
+                                restoreStatusMessage = msg
+                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("btn_firebase_cloud_backup")
+                ) {
+                    Icon(Icons.Outlined.CloudUpload, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Backup to Firebase Cloud", fontWeight = FontWeight.Bold, color = Color.White)
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Button: Restore from Firebase Cloud
+                Button(
+                    onClick = {
+                        isOperating = true
+                        coroutineScope.launch(Dispatchers.IO) {
+                            val result = viewModel.recoverDataFromCloudNow(isOverwrite = isOverwriteMode)
+                            withContext(Dispatchers.Main) {
+                                isOperating = false
+                                val msg = result.getOrNull() ?: result.exceptionOrNull()?.localizedMessage ?: "Cloud restore failed"
+                                isSuccessStatus = result.isSuccess
+                                restoreStatusMessage = msg
+                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                if (result.isSuccess) {
+                                    refreshLocalBackups()
+                                    viewModel.setTab(com.attendance.app.azaz.viewmodel.AppTab.ATTENDANCE)
+                                }
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("btn_firebase_cloud_restore")
+                ) {
+                    Icon(Icons.Outlined.CloudDownload, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Restore from Firebase Cloud", fontWeight = FontWeight.Bold, color = Color.White)
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
     }
 }

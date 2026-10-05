@@ -446,8 +446,11 @@ fun WorkerDetailsScreen(viewModel: HaazriViewModel) {
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(currentWorker.name, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E293B))
-                        Text(currentWorker.phone.ifEmpty { "No phone number" }, fontSize = 14.sp, color = Color(0xFF64748B))
-                        Text("${currentWorker.wageType} Wage: ${viewModel.maskAmount(currentWorker.wageRate)}", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E3A8A))
+                        val dailyBaseRate = viewModel.calculateDailyBaseRate(currentWorker, selectedFilterMonth)
+                        val rateSubtext = if (currentWorker.wageType.equals("Monthly", ignoreCase = true) || currentWorker.wageType.equals("Weekly", ignoreCase = true)) {
+                            " (${viewModel.maskAmount(dailyBaseRate)}/day)"
+                        } else ""
+                        Text("${currentWorker.wageType} Wage: ${viewModel.maskAmount(currentWorker.wageRate)}$rateSubtext", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF1E3A8A))
                     }
 
                     // Modify / Edit Worker Button

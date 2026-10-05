@@ -112,25 +112,7 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
     val selectedWorkerMonthlySummary: StateFlow<MonthlySummary?> = combine(selectedWorker, selectedWorkerAttendance, selectedMonthYear) { worker, records, month ->
         if (worker == null) return@combine null
         val monthRecords = records.filter { it.date.startsWith(month) }
-        val present = monthRecords.count { it.status.uppercase() in listOf("P", "PRESENT") }
-        val half = monthRecords.count { it.status.uppercase() in listOf("H", "HALF", "HALF-DAY", "1/2") }
-        val absent = monthRecords.count { it.status.uppercase() in listOf("A", "ABSENT") }
-        val ot = monthRecords.sumOf { it.overtimeHours }
-        val basePay = present * worker.wageRate + half * (worker.wageRate * worker.halfDayPayFactor)
-        val otPay = ot * worker.overtimeRate
-        val total = basePay + otPay
-        MonthlySummary(
-            workerId = worker.id,
-            workerName = worker.name,
-            wageType = worker.wageType,
-            baseWageRate = worker.wageRate,
-            totalPresentDays = present,
-            totalHalfDays = half,
-            totalAbsentDays = absent,
-            totalOvertimeHours = ot,
-            grossBasePay = basePay,
-            netMonthlyWage = total
-        )
+        WageCalculator.calculateWageForRecords(worker, month, monthRecords)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val selectedWorkerCashbookEntries: StateFlow<List<CashbookEntry>> = combine(selectedWorkerId, cashbookEntries) { id, entries ->
@@ -591,19 +573,24 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun maskAmount(amount: Double): String {
-        return if (isAmountsHidden.value) "₹ ****" else "₹ $amount"
+        val formatted = if (amount % 1.0 == 0.0) {
+            String.format(Locale.getDefault(), "%,d", amount.toLong())
+        } else {
+            String.format(Locale.getDefault(), "%,.2f", amount)
+        }
+        return if (isAmountsHidden.value) "₹ ****" else "₹ $formatted"
     }
 
     fun formatDisplayPeriod(monthYear: String): String {
         return monthYear
     }
 
-    fun calculateDailyBaseRate(worker: Worker): Double {
-        return worker.wageRate
+    fun calculateDailyBaseRate(worker: Worker, dateOrMonth: String = ""): Double {
+        return WageCalculator.calculateDailyBaseRate(worker, dateOrMonth)
     }
 
     fun calculateWageForRecords(worker: Worker, records: List<AttendanceRecord>): Double {
-        return records.sumOf { WageCalculator.calculateDailyWage(worker, it.status) }
+        return records.sumOf { WageCalculator.calculateDailyWage(worker, it) }
     }
 
     fun generateMonthlyPayrollPdf(context: android.content.Context, worker: Worker, records: List<AttendanceRecord>, monthYear: String): Uri? {
@@ -638,15 +625,15 @@ class HaazriViewModel(application: Application) : AndroidViewModel(application) 
         return com.attendance.app.azaz.util.CloudBackupManager.recoverDataFromCloud(getApplication(), repository, authManager, isOverwrite)
     }
 
-    fun getDailyWageBreakdown(worker: Worker, status: String, customAmount: Double): Double {
-        return if (customAmount > 0.0) customAmount else WageCalculator.calculateDailyWage(worker, status)
+    fun getDailyWageBreakdown(worker: Worker, status: String, customAmount: Double, date: String = ""): Double {
+        return WageCalculator.calculateDailyWage(worker, status, customAmount, date)
     }
 
     fun getDailyWageBreakdown(worker: Worker, record: AttendanceRecord): Double {
-        return getDailyWageBreakdown(worker, record.status, record.customAmount)
+        return WageCalculator.calculateDailyWage(worker, record)
     }
 
     fun netDailyWage(worker: Worker, record: AttendanceRecord): Double {
-        return getDailyWageBreakdown(worker, record)
+        return WageCalculator.calculateDailyWage(worker, record)
     }
 }
